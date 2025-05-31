@@ -3,8 +3,14 @@ using System.Collections.Generic;
 
 namespace OpenUGD
 {
+    /// <summary>
+    /// Represents a lifetime that can be used to manage the lifecycle of resources or actions.
+    /// </summary>
     public class Lifetime
     {
+        /// <summary>
+        /// Represents a definition of a lifetime that can be used to create, manage nested lifetimes.
+        /// </summary>
         public class Definition : IDisposable
         {
             private Definition(string id)
@@ -14,15 +20,51 @@ namespace OpenUGD
                 ParentId = -1;
             }
 
+            /// <summary>
+            /// [used for debugging purposes]
+            /// Unique identifier for the lifetime definition, used for debugging purposes.
+            /// </summary>
             public string Id { get; }
+
+            /// <summary>
+            /// Indicates whether the lifetime has been terminated.
+            /// </summary>
             public bool IsTerminated => Lifetime.IsTerminated;
+
+            /// <summary>
+            /// The lifetime associated with this definition, which can be used to manage the lifecycle of resources or actions.
+            /// </summary>
             public Lifetime Lifetime { get; }
+
+            /// <summary>
+            /// [used for debugging purposes]
+            /// The ID of the parent lifetime, if any. This is used to track the hierarchy of lifetimes (used for debugging purposes).
+            /// </summary>
             public int ParentId { get; private set; }
 
+            /// <summary>
+            /// Terminates the lifetime and invokes all registered actions.
+            /// </summary>
             public void Terminate() => Lifetime.Terminate();
 
+            /// <summary>
+            /// Disposes the definition, which terminates the lifetime and invokes all registered actions.
+            /// </summary>
             public void Dispose() => Lifetime.Terminate();
 
+            /// <summary>
+            /// Disposes the definition, which terminates the lifetime and invokes all registered actions.
+            /// </summary>
+            void IDisposable.Dispose() => Lifetime.Terminate();
+
+            /// <summary>
+            /// Defines a new lifetime definition with the specified lifetime and optional ID for debug.
+            /// </summary>
+            /// <param name="lifetime"></param>
+            /// <param name="id"></param>
+            /// <returns></returns>
+            /// <exception cref="ArgumentNullException"></exception>
+            /// <exception cref="InvalidOperationException"></exception>
             public static Definition Define(Lifetime lifetime, string id = null)
             {
                 if (lifetime == null)
@@ -32,14 +74,18 @@ namespace OpenUGD
                     throw new InvalidOperationException(
                         $"{nameof(lifetime)} can't be terminated on define new definition");
 
-                var definition = new Definition(id)
-                {
+                var definition = new Definition(id) {
                     ParentId = lifetime.Id
                 };
                 lifetime.AddDefinition(definition);
                 return definition;
             }
 
+            /// <summary>
+            /// Creates a new lifetime definition that represents the intersection of multiple lifetimes.
+            /// </summary>
+            /// <param name="lifetimes"></param>
+            /// <returns></returns>
             public static Definition Intersection(params Lifetime[] lifetimes)
             {
                 var definition = Define(Eternal);
@@ -55,17 +101,31 @@ namespace OpenUGD
         private static readonly Stack<List<Action>> _pool = new Stack<List<Action>>();
         private static int _instances;
 
+        /// <summary>
+        /// Represents a lifetime that never terminates, allowing actions to be registered indefinitely.
+        /// </summary>
         public static readonly Lifetime Eternal = new Lifetime();
 
         private List<Action> _actions;
         private readonly int _id;
         private readonly object _lock = new object();
 
+        /// <summary>
+        /// Defines a new lifetime definition with the specified lifetime and optional ID for debug.
+        /// </summary>
+        /// <param name="lifetime"></param>
+        /// <param name="id"></param>
+        /// <returns></returns>
         public static Definition Define(Lifetime lifetime, string id = null)
         {
             return Definition.Define(lifetime, id);
         }
 
+        /// <summary>
+        /// Creates a new lifetime definition that represents the intersection of multiple lifetimes.
+        /// </summary>
+        /// <param name="lifetimes"></param>
+        /// <returns></returns>
         public static Definition Intersection(params Lifetime[] lifetimes)
         {
             return Definition.Intersection(lifetimes);
@@ -80,12 +140,17 @@ namespace OpenUGD
             }
         }
 
+        /// <summary>
+        /// [used for debugging purposes]
+        /// Unique identifier for the lifetime instance, used for debugging purposes.
+        /// </summary>
         public int Id => _id;
 
-        public bool IsTerminated
-        {
-            get
-            {
+        /// <summary>
+        /// Indicates whether the lifetime has been terminated.
+        /// </summary>
+        public bool IsTerminated {
+            get {
                 lock (_lock)
                 {
                     return _actions == null;
@@ -93,6 +158,12 @@ namespace OpenUGD
             }
         }
 
+        /// <summary>
+        /// Adds an action to be invoked when the lifetime is terminated.
+        /// </summary>
+        /// <param name="action"></param>
+        /// <returns>Lifetime</returns>
+        /// <exception cref="ArgumentException"></exception>
         public Lifetime AddAction(Action action)
         {
             lock (_lock)
@@ -112,6 +183,12 @@ namespace OpenUGD
             }
         }
 
+        /// <summary>
+        /// Adds an action to be invoked when the lifetime is terminated, and returns a disposable that will remove the action when disposed.
+        /// </summary>
+        /// <param name="onOpen">The onOpen action to be invoked if the lifetime is not terminated</param>
+        /// <param name="onTerminate">The onTerminate action to be invoked when the lifetime is terminated</param>
+        /// <returns>Lifetime</returns>
         public Lifetime AddBracket(Action onOpen, Action onTerminate)
         {
             lock (_lock)
@@ -126,6 +203,11 @@ namespace OpenUGD
             }
         }
 
+        /// <summary>
+        /// Defines a new nested lifetime definition with the current lifetime as its parent.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
         public Definition DefineNested(string name = null)
         {
             return Define(this, name);
@@ -142,8 +224,7 @@ namespace OpenUGD
                 else if (!_actions.Contains(definition.Terminate))
                 {
                     _actions.Add(definition.Terminate);
-                    definition.Lifetime.AddAction(() =>
-                    {
+                    definition.Lifetime.AddAction(() => {
                         lock (_lock)
                         {
                             if (_actions != null)
