@@ -69,11 +69,12 @@ namespace OpenUGD
         /// </para>
         /// <para>
         /// <b>Do not call <see cref="LifetimeExtensions.With{T}"/> on a definition.</b>
-        /// <c>scope.With(other)</c> compiles, because a definition is an <see cref="IDisposable"/>, but it
-        /// neither nests <c>scope</c> in <c>other</c> nor detaches when <c>scope</c> ends first: it adds a
-        /// plain action to <c>other</c> that keeps <c>scope</c> reachable until <c>other</c> ends. Create the
-        /// scope where it belongs instead — <c>other.DefineNested()</c>, or
-        /// <c>Lifetime.Intersection(parent, other)</c> when it must end with either of two lifetimes.
+        /// <c>scope.With(other)</c> compiles, because a definition is an <see cref="IDisposable"/>, and it
+        /// does end <c>scope</c> when <c>other</c> ends — but through a plain action on <c>other</c>, not as a
+        /// nested scope, so nothing detaches it when <c>scope</c> ends first: <c>other</c> keeps <c>scope</c>
+        /// reachable until <c>other</c> ends. Create the scope where it belongs instead —
+        /// <c>other.DefineNested()</c>, or <c>Lifetime.Intersection(parent, other)</c> when it must end with
+        /// either of two lifetimes.
         /// </para>
         /// <code>
         /// using var scope = lifetime.DefineNested("load-level");
@@ -209,7 +210,8 @@ namespace OpenUGD
 
         // The one and only lock of this type. It is taken exclusively around reads and writes of the fields
         // below (and of Child.Index) - never around a call to user code, and never around a call into another
-        // Lifetime. Every lock block in this file is straight-line field and array operations; verify by eye.
+        // Lifetime. Every lock block in this file does only field and array work on this instance (Append,
+        // Detach and Compact included); verify by eye.
         private readonly object _lock = new object();
         private readonly int _id;
 
@@ -217,8 +219,8 @@ namespace OpenUGD
         // or null: a child that terminated first and detached. Detaching empties its slot by index, which is
         // O(1); Compact squeezes the empty slots out once they are more than half of the used range, so the
         // cost is amortised O(1) per detach and terminating n children one by one is O(n).
-        // Null array means "none": nothing registered yet (allocation is deferred), or handed off to
-        // Terminate. Only ever touched under _lock.
+        // Null array means "none": nothing registered yet (allocation is deferred), every entry detached and
+        // compacted away, or handed off to Terminate. Only ever touched under _lock.
         private object[] _entries;
         private int _count;      // used slots, empty ones included; the next registration goes to _count
         private int _emptySlots; // null slots below _count

@@ -139,7 +139,7 @@ public class Example
 | `void Terminate()` | Terminates the lifetime and runs its actions in reverse order. Idempotent. Every action runs even if some throw; then a single failure is rethrown as itself, two or more as one `AggregateException`. |
 | `void Dispose()` | Same as `Terminate()`. |
 | `bool IsTerminated` | Whether the owned lifetime has been terminated. |
-| `string Name`, `int ParentId` | Debugging identifiers: the name given to `DefineNested`, and the `Id` of the parent lifetime. |
+| `string Name`, `int ParentId` | Debugging identifiers: the name given to `DefineNested`, and the `Id` of the parent lifetime (of `Eternal`, for an intersection). |
 | `implicit operator Lifetime(Definition)` | Lets a definition be passed where a `Lifetime` is expected. Not applied to member access: write `scope.Lifetime.AddAction(...)`. |
 
 ### `LifetimeExtensions`
@@ -159,8 +159,9 @@ All extension methods throw `ArgumentNullException` for a null lifetime or dispo
 creates a scope that ends with whichever of its inputs ends first. Both can be ended early by their owner,
 and then detach themselves, so a long-lived parent does not accumulate dead children; a detach costs O(1)
 (amortised) however many siblings there are, so ending thousands of scopes is linear. There is no third
-way: `With` on a `Definition` compiles (a definition is an `IDisposable`) but neither nests it nor detaches
-it.
+way: `With` on a `Definition` compiles (a definition is an `IDisposable`) and ends it with the other
+lifetime, but as a plain action, not a nested scope — nothing detaches it if it ends first, so the other
+lifetime keeps it reachable until that lifetime ends.
 
 ## Eternal and play sessions
 

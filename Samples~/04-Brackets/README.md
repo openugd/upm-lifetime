@@ -35,8 +35,9 @@ twice. On a dead lifetime the object **is** disposed immediately (it already exi
 registration would leak it).
 
 Do not use `With` to tie a `Lifetime.Definition` to another lifetime. It compiles, because a definition is
-an `IDisposable`, but the definition is not nested and does not detach when it ends first — it stays
-referenced by the other lifetime until that one ends. Use `other.DefineNested()`, or
+an `IDisposable`, and the definition does end with the other lifetime — but through a plain action, not as
+a nested scope, so nothing detaches it when it ends first: it stays referenced by the other lifetime until
+that one ends. Use `other.DefineNested()`, or
 `Lifetime.Intersection(...)` when it must end with either of two lifetimes.
 
 ## What to look at

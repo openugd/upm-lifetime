@@ -25,8 +25,9 @@ namespace OpenUGD.Samples.Brackets
     /// </para>
     /// <para>
     /// Do not call <c>With</c> on a <see cref="Lifetime.Definition"/> to tie one scope to another: it
-    /// compiles, but it neither nests the definition nor detaches when it ends first. Create the scope with
-    /// <c>other.DefineNested()</c> or <c>Lifetime.Intersection(...)</c> instead.
+    /// compiles and ends the definition with the other lifetime, but through a plain action, not as a nested
+    /// scope, so nothing detaches it when it ends first. Create the scope with <c>other.DefineNested()</c>
+    /// or <c>Lifetime.Intersection(...)</c> instead.
     /// </para>
     /// </remarks>
     public static class DisposableSample

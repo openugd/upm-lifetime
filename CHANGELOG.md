@@ -106,7 +106,7 @@ read Changed and Removed before upgrading.
 - Assembly definition now declares `rootNamespace` `OpenUGD`, `noEngineReferences: true` and the full
   canonical key set instead of relying on editor defaults.
 - README rewritten with install instructions, a quick start and an API overview.
-- The package now ships its own test assembly (`Tests/Editor`, 96 tests, gated on `UNITY_INCLUDE_TESTS`).
+- The package now ships its own test assembly (`Tests/Editor`, 97 tests, gated on `UNITY_INCLUDE_TESTS`).
 
 ### Removed
 - **`Lifetime.Define(Lifetime, string)`, `Lifetime.Definition.Define(Lifetime, string)` and

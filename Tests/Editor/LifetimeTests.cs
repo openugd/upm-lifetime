@@ -1245,12 +1245,74 @@ namespace OpenUGD.Tests
         }
 
         [Test]
+        public void ChildrenMovedByCompaction_AreReleasedByTheParentOnceTheyTerminate()
+        {
+            // LS-4 (added in review): compacting in place moves the surviving entries down and must clear the
+            // slots they vacated. A stale copy past the used range is never run, so only non-retention can
+            // show it: it would keep a moved child reachable after that child terminated.
+            var parent = NewDefinition("parent");
+
+            var weakChildren = CompactInPlaceThenTerminateTheMovedChildren(parent.Lifetime);
+
+            for (var i = 0; i < 3; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+
+            Assert.IsTrue(weakChildren.All(weak => !weak.IsAlive),
+                "Every terminated child, including the ones compaction moved, must be released by the parent.");
+
+            var calls = 0;
+            parent.Lifetime.AddAction(() => calls++);
+            parent.Terminate();
+            Assert.AreEqual(1, calls, "The parent must stay usable after compaction.");
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static WeakReference[] CompactInPlaceThenTerminateTheMovedChildren(Lifetime parent)
+        {
+            var children = new Lifetime.Definition[10];
+            for (var i = 0; i < children.Length; i++)
+            {
+                children[i] = parent.DefineNested("child-" + i);
+            }
+
+            // Oldest first: the sixth detach leaves more than half of the ten slots empty, which compacts the
+            // four survivors into slots 0-3 of the same (small) array.
+            for (var i = 0; i < 6; i++)
+            {
+                children[i].Terminate();
+            }
+
+            // Then the moved ones end too, so nothing in the parent should refer to any child any more.
+            for (var i = 6; i < children.Length; i++)
+            {
+                children[i].Terminate();
+            }
+
+            var weak = children.Select(child => new WeakReference(child)).ToArray();
+
+            // A conservative collector (Unity's Mono) may see a stale copy of the array reference on the
+            // stack; empty it so that such a copy cannot keep all ten children alive.
+            Array.Clear(children, 0, children.Length);
+            return weak;
+        }
+
+        [Test]
         public void DetachingChildrenInAnyOrder_KeepsEveryRemainingEntryInStrictLifoOrder([Values(1, 2, 3)] int seed)
         {
             // LS-4: detach is O(1) via slots, empty slots and compaction, all of which move entries around
             // inside the parent. A model-based check: random registrations and early terminations against a
             // plain list of what should remain, then the parent's teardown must match the model exactly -
             // every survivor once, in reverse registration order, and no early-terminated child again.
+            //
+            // The run alternates 500-step phases: growth (10% actions, 70% children, 20% early terminations)
+            // and shrinkage (no actions, 20% children, 80% early terminations), so that every seed drives
+            // the parent through several in-place compactions and several compactions into a smaller array,
+            // and then detaches children whose slots those compactions moved. (Review: a uniform 30/40/30
+            // mix compacted at most once per run and usually never, so it could not catch a broken slot
+            // rewrite or a miscounted empty slot.)
             var random = new Random(seed);
             var parent = NewDefinition("model-" + seed);
             var log = new List<string>();
@@ -1259,14 +1321,17 @@ namespace OpenUGD.Tests
 
             for (var step = 0; step < 3000; step++)
             {
+                var shrinking = step / 500 % 2 == 1;
+                var actionBelow = shrinking ? 0 : 1;
+                var childBelow = shrinking ? 2 : 8;
                 var roll = random.Next(10);
                 var label = "e" + step;
-                if (roll < 3)
+                if (roll < actionBelow)
                 {
                     parent.Lifetime.AddAction(() => log.Add(label));
                     model.Add(label);
                 }
-                else if (roll < 7 || liveChildren.Count == 0)
+                else if (roll < childBelow || liveChildren.Count == 0)
                 {
                     var child = parent.Lifetime.DefineNested(label);
                     child.Lifetime.AddAction(() => log.Add(label));

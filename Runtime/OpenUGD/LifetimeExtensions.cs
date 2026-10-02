@@ -35,9 +35,10 @@ namespace OpenUGD
         /// </para>
         /// <para>
         /// <b>Not for a <see cref="Lifetime.Definition"/>.</b> <c>definition.With(other)</c> compiles,
-        /// because a definition is an <see cref="IDisposable"/>, but it registers a plain action: the
-        /// definition is not nested in <c>other</c>, and if it ends first it stays referenced by
-        /// <c>other</c> until <c>other</c> ends. Create the scope with <c>other.DefineNested()</c>, or with
+        /// because a definition is an <see cref="IDisposable"/>, and the definition does end when
+        /// <c>other</c> ends — but through a plain action, not as a nested scope, so if it ends first nothing
+        /// detaches it and it stays referenced by <c>other</c> until <c>other</c> ends. Create the scope
+        /// with <c>other.DefineNested()</c>, or with
         /// <see cref="Lifetime.Intersection"/> when it must end with either of two lifetimes; both detach
         /// when the scope ends first.
         /// </para>
