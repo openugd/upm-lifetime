@@ -1,14 +1,73 @@
 {
   "name": "com.openugd.lifetime",
   "displayName": "Lifetime",
-  "version": "1.2.0",
-  "unity": "2020.3",
-  "author": "https://github.com/openugd",
-  "description": "A library for managing the lifetime of objects.\n",
+  "version": "2.0.0",
+  "license": "Apache-2.0",
+  "unity": "2022.3",
+  "unityRelease": "0f1",
+  "author": {
+    "name": "Mykola Dorofii",
+    "email": "dorofiy.kolya@gmail.com",
+    "url": "https://github.com/openugd"
+  },
+  "description": "Structured object lifetimes: a composable scope primitive for deterministic cleanup. A Lifetime collects termination actions and nested scopes; terminating its Definition runs them in reverse registration order, so resources are released at a well-defined point rather than whenever the garbage collector runs. Same model as JetBrains Rider Lifetime/LifetimeDefinition.",
   "keywords": [
     "lifetime",
-    "lifetimes"
+    "lifetimes",
+    "scope",
+    "disposable",
+    "cancellation",
+    "cleanup",
+    "resource-management"
   ],
   "dependencies": {},
-  "category": "Unity"
+  "licensesUrl": "https://github.com/openugd/upm-lifetime/blob/master/LICENSE.md",
+  "documentationUrl": "https://github.com/openugd/upm-lifetime",
+  "changelogUrl": "https://github.com/openugd/upm-lifetime/blob/master/CHANGELOG.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openugd/upm-lifetime.git"
+  },
+  "samples": [
+    {
+      "displayName": "01 Capability Split",
+      "description": "Who holds the Definition versus who holds the Lifetime. Handing out a Lifetime hands out no authority to end it - the same split as CancellationTokenSource and CancellationToken.",
+      "path": "Samples~/01-CapabilitySplit"
+    },
+    {
+      "displayName": "02 Nested Scopes",
+      "description": "Scopes form a tree: terminating a parent cascades to every child, a child that ends first unregisters itself, and clean-up runs LIFO with failures isolated into an AggregateException.",
+      "path": "Samples~/02-NestedScopes"
+    },
+    {
+      "displayName": "03 Bounded Operation",
+      "description": "using var scope = lifetime.DefineNested(...) for an operation with a beginning and an end, and the implicit Definition to Lifetime conversion that downgrades the capability at every call boundary.",
+      "path": "Samples~/03-BoundedOperation"
+    },
+    {
+      "displayName": "04 Brackets and Disposables",
+      "description": "AddBracket writes acquire and release as one expression, and disposable.With(lifetime) ties an IDisposable to a scope on the line that constructs it.",
+      "path": "Samples~/04-Brackets"
+    },
+    {
+      "displayName": "05 Cancellation",
+      "description": "AsCancellationToken bridges a scope into async/await code, so ending the scope cancels in-flight work and a token from a dead scope is born cancelled instead of hanging forever.",
+      "path": "Samples~/05-Cancellation"
+    },
+    {
+      "displayName": "06 Intersection",
+      "description": "A scope that ends as soon as either of two independent scopes ends - for things whose validity depends on several lifetimes at once, which the parent-child tree cannot express.",
+      "path": "Samples~/06-Intersection"
+    },
+    {
+      "displayName": "07 Already Terminated",
+      "description": "The 2.0.0 rule: registering clean-up on an already-terminated scope runs it immediately rather than dropping it silently, which removes a whole class of leaks.",
+      "path": "Samples~/07-AlreadyTerminated"
+    },
+    {
+      "displayName": "08 Unity Integration",
+      "description": "The only sample that needs Unity: binding a scope to a GameObject, a nested scope for OnEnable/OnDisable, and async work cancelled by destruction. The package itself has no engine dependency.",
+      "path": "Samples~/08-UnityIntegration"
+    }
+  ]
 }

@@ -1,0 +1,16 @@
+{
+    "name": "com.openugd.lifetime.samples.capabilitysplit",
+    "rootNamespace": "OpenUGD.Samples.CapabilitySplit",
+    "references": [
+        "com.openugd.lifetime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

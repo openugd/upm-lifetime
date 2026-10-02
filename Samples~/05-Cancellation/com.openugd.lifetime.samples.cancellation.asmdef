@@ -1,0 +1,16 @@
+{
+    "name": "com.openugd.lifetime.samples.cancellation",
+    "rootNamespace": "OpenUGD.Samples.Cancellation",
+    "references": [
+        "com.openugd.lifetime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

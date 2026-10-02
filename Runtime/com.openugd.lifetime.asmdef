@@ -1,3 +1,14 @@
 {
-	"name": "com.openugd.lifetime"
+	"name": "com.openugd.lifetime",
+	"rootNamespace": "OpenUGD",
+	"references": [],
+	"includePlatforms": [],
+	"excludePlatforms": [],
+	"allowUnsafeCode": false,
+	"overrideReferences": false,
+	"precompiledReferences": [],
+	"autoReferenced": true,
+	"defineConstraints": [],
+	"versionDefines": [],
+	"noEngineReferences": true
 }
