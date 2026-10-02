@@ -84,7 +84,7 @@ read Changed and Removed before upgrading.
   (previously a token that could never cancel, so any `await` on it hung forever). It allocates no
   `CancellationTokenSource` in that case. The source is documented as intentionally never disposed,
   so callers still holding the token are never broken.
-- **`With(IDisposable, Lifetime)` on an already-terminated lifetime now disposes immediately**
+- **`With` on an already-terminated lifetime now disposes immediately**
   (previously the object was never disposed at all). An exception from that `Dispose` propagates.
 - **`Intersection` now throws `ArgumentNullException`** for a null array or a null element, validated
   before anything is wired up. Previously a `NullReferenceException` part-way through wiring left a

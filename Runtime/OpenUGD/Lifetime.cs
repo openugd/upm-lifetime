@@ -133,9 +133,9 @@ namespace OpenUGD
             /// order). A later call neither re-runs the actions nor re-throws.
             /// </para>
             /// <para>
-            /// A nested scope is one action of its parent, so its failure reaches the parent as whatever its
-            /// own termination threw: a single failure anywhere in a tree arrives unwrapped, and aggregates
-            /// nest only where one scope collected two or more. Call
+            /// A nested scope's termination is one entry in its parent's sequence, so its failure reaches the
+            /// parent as whatever its own termination threw: a single failure anywhere in a tree arrives
+            /// unwrapped, and aggregates nest only where one scope collected two or more. Call
             /// <see cref="AggregateException.Flatten"/> on an aggregate for the leaves.
             /// <i>Changed in 2.0.0</i> — in 1.x the first failure aborted the remaining actions.
             /// </para>
@@ -269,8 +269,8 @@ namespace OpenUGD
         /// <b>If this lifetime is already terminated, the returned definition is already terminated</b>,
         /// and whatever is then registered on it runs immediately, as for any terminated lifetime. A live
         /// child of a dead parent is never produced. <i>Changed in 2.0.0</i> — this used to throw
-        /// <see cref="InvalidOperationException"/>, unlike every other operation on a terminated lifetime;
-        /// test <see cref="Definition.IsTerminated"/> on the result if you need to know.
+        /// <see cref="InvalidOperationException"/>, unlike registering anything else on a terminated
+        /// lifetime; test <see cref="Definition.IsTerminated"/> on the result if you need to know.
         /// </para>
         /// </remarks>
         /// <param name="name">
