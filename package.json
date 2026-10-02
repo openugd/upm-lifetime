@@ -36,7 +36,7 @@
     },
     {
       "displayName": "02 Nested Scopes",
-      "description": "Scopes form a tree: terminating a parent cascades to every child, a child that ends first unregisters itself, and clean-up runs LIFO with failures isolated into an AggregateException.",
+      "description": "Scopes form a tree: terminating a parent cascades to every child, a child that ends first unregisters itself, and clean-up runs LIFO with failures isolated and reported once every action has run.",
       "path": "Samples~/02-NestedScopes"
     },
     {

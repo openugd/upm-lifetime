@@ -44,9 +44,10 @@ namespace OpenUGD.Samples.UnityIntegration
 
         private void OnDestroy()
         {
-            // Terminate() can throw an AggregateException if a clean-up action throws (see sample 02).
-            // Letting it escape OnDestroy is fine — Unity logs it and, crucially, every other clean-up
-            // action has already run by then. Catch it here only if you want it logged your own way.
+            // Terminate() rethrows a clean-up action's exception — an AggregateException if several threw
+            // (see sample 02). Letting it escape OnDestroy is fine — Unity logs it and, crucially, every
+            // other clean-up action has already run by then. Catch it here only if you want it logged your
+            // own way.
             _definition?.Terminate();
         }
 

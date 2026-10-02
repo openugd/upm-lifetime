@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 
 namespace OpenUGD
@@ -31,6 +32,11 @@ namespace OpenUGD
     /// <para>
     /// <b>Order.</b> Termination actions run in reverse registration order (LIFO). This is a guarantee, not
     /// an implementation detail: the last resource acquired is the first one released.
+    /// </para>
+    /// <para>
+    /// <b>Failures.</b> A throwing termination action never stops the others. The failures are reported
+    /// once every action has run: one failure as itself, two or more as an <see cref="AggregateException"/>
+    /// (see <see cref="Definition.Terminate"/>).
     /// </para>
     /// <para>
     /// <b>Thread safety.</b> Every member is safe to call concurrently. No lock is ever held while user code
@@ -119,10 +125,19 @@ namespace OpenUGD
             /// Idempotent: the second and later calls do nothing.
             /// </para>
             /// <para>
-            /// If one or more actions throw, all of them still run and a single
-            /// <see cref="AggregateException"/> is thrown at the end; the lifetime is fully terminated
-            /// either way, and a later call neither re-runs the actions nor re-throws. Nested scopes produce
-            /// nested aggregates — call <see cref="AggregateException.Flatten"/> if you want the leaves.
+            /// <b>Failures.</b> If actions throw, all of them still run and the lifetime is fully terminated
+            /// either way; the failures are reported when the last action has run. <b>Exactly one failure
+            /// is rethrown as itself</b>, with its original type and stack trace, so a caller catches the
+            /// exception the action threw. <b>Two or more are thrown as one
+            /// <see cref="AggregateException"/></b>, in the order they occurred (reverse registration
+            /// order). A later call neither re-runs the actions nor re-throws.
+            /// </para>
+            /// <para>
+            /// A nested scope is one action of its parent, so its failure reaches the parent as whatever its
+            /// own termination threw: a single failure anywhere in a tree arrives unwrapped, and aggregates
+            /// nest only where one scope collected two or more. Call
+            /// <see cref="AggregateException.Flatten"/> on an aggregate for the leaves.
+            /// <i>Changed in 2.0.0</i> — in 1.x the first failure aborted the remaining actions.
             /// </para>
             /// <para>
             /// Concurrency: exactly one caller runs the actions. Other concurrent callers return
@@ -130,7 +145,10 @@ namespace OpenUGD
             /// "clean-up has finished", be the thread that owns the definition.
             /// </para>
             /// </remarks>
-            /// <exception cref="AggregateException">One or more termination actions threw.</exception>
+            /// <exception cref="Exception">
+            /// Exactly one termination action threw: that exception, rethrown with its original stack trace.
+            /// </exception>
+            /// <exception cref="AggregateException">Two or more termination actions threw.</exception>
             public void Terminate() => Lifetime.Terminate();
 
             /// <summary>
@@ -140,7 +158,10 @@ namespace OpenUGD
             /// Note that this can therefore throw at the closing brace of a <c>using</c> block; see
             /// <see cref="Terminate"/>.
             /// </remarks>
-            /// <exception cref="AggregateException">One or more termination actions threw.</exception>
+            /// <exception cref="Exception">
+            /// Exactly one termination action threw: that exception, rethrown with its original stack trace.
+            /// </exception>
+            /// <exception cref="AggregateException">Two or more termination actions threw.</exception>
             public void Dispose() => Lifetime.Terminate();
 
             /// <summary>
@@ -482,7 +503,8 @@ namespace OpenUGD
 
             // From here on NO lock is held, and this lifetime is already terminated for every observer.
             // An action is free to call back into this lifetime, its parent or its children, and to throw.
-            List<Exception> errors = null;
+            Exception failure = null;
+            List<Exception> failures = null;
             for (var i = actions.Count - 1; i >= 0; i--)
             {
                 try
@@ -493,14 +515,20 @@ namespace OpenUGD
                 {
                     // One bad action must not strand the ones registered before it: keep going, report at
                     // the end. Termination is already committed, so it completes whatever happens here.
-                    (errors ??= new List<Exception>()).Add(exception);
+                    if (failure == null) failure = exception;
+                    else (failures ??= new List<Exception> { failure }).Add(exception);
                 }
             }
 
-            if (errors != null)
-                throw new AggregateException(
-                    $"One or more termination actions of Lifetime #{_id} threw. The lifetime is fully " +
-                    "terminated and every registered action was invoked.", errors);
+            if (failure == null) return;
+
+            // Exactly one failure: rethrow that exception itself, keeping its type and its original stack
+            // trace, so callers catch what the action threw instead of unwrapping a one-element aggregate.
+            if (failures == null) ExceptionDispatchInfo.Capture(failure).Throw();
+
+            throw new AggregateException(
+                $"{failures.Count} termination actions of Lifetime #{_id} threw. The lifetime is fully " +
+                "terminated and every registered action was invoked.", failures);
         }
     }
 }

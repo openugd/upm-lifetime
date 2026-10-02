@@ -136,7 +136,7 @@ public class Example
 | Member | Description |
 | --- | --- |
 | `Lifetime Lifetime` | The lifetime this definition owns. |
-| `void Terminate()` | Terminates the lifetime and runs its actions in reverse order. Idempotent. |
+| `void Terminate()` | Terminates the lifetime and runs its actions in reverse order. Idempotent. Every action runs even if some throw; then a single failure is rethrown as itself, two or more as one `AggregateException`. |
 | `void Dispose()` | Same as `Terminate()`. |
 | `bool IsTerminated` | Whether the owned lifetime has been terminated. |
 | `string Name`, `int ParentId` | Debugging identifiers: the name given to `DefineNested`, and the `Id` of the parent lifetime. |

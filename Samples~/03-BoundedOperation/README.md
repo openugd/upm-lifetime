@@ -33,7 +33,7 @@ Run it twice, as `Run` does, and notice the second call starts from a clean slat
 
 ## Caveat
 
-`Dispose()` is `Terminate()`, so a throwing clean-up surfaces as an `AggregateException` **at the closing
-brace** of the `using` block. See sample 02.
+`Dispose()` is `Terminate()`, so a throwing clean-up surfaces **at the closing brace** of the `using`
+block — as the exception itself, or as an `AggregateException` when several clean-ups throw. See sample 02.
 
 This sample is plain C# — the package references neither `UnityEngine` nor `UnityEditor`.

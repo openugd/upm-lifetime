@@ -28,8 +28,9 @@ namespace OpenUGD.Samples.BoundedOperation
     /// scope itself still reads <c>scope.Lifetime.AddAction(...)</c>, as below.
     /// </para>
     /// <para>
-    /// Caveat worth knowing: because <c>Dispose()</c> is <c>Terminate()</c>, a throwing clean-up surfaces as
-    /// an <see cref="AggregateException"/> thrown <i>at the closing brace</i>. See sample 02.
+    /// Caveat worth knowing: because <c>Dispose()</c> is <c>Terminate()</c>, a throwing clean-up surfaces
+    /// <i>at the closing brace</i> — as the exception itself, or as an <see cref="AggregateException"/> when
+    /// several clean-ups throw. See sample 02.
     /// </para>
     /// </remarks>
     public static class BoundedOperationSample

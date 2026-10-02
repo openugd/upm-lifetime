@@ -33,8 +33,8 @@ namespace OpenUGD.Samples.AlreadyTerminated
     /// <para>
     /// The two consequences to keep in mind: the action may run <i>before</i> <c>AddAction</c> returns, so
     /// do not register something that assumes the surrounding constructor has finished; and an exception it
-    /// throws propagates straight to the caller of <c>AddAction</c> rather than into an
-    /// <see cref="AggregateException"/> at termination.
+    /// throws propagates straight to the caller of <c>AddAction</c>, because there is no later termination
+    /// to report it.
     /// </para>
     /// </remarks>
     public static class AlreadyTerminatedSample
@@ -74,7 +74,7 @@ namespace OpenUGD.Samples.AlreadyTerminated
             }
             catch (InvalidOperationException exception)
             {
-                // Not an AggregateException: nothing is being torn down, this ran inline.
+                // Thrown by AddAction itself: nothing is being torn down, the action ran inline.
                 log("  thrown straight out of AddAction: " + exception.Message);
             }
         }

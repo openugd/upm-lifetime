@@ -54,11 +54,16 @@ read Changed and Removed before upgrading.
   it is now a documented guarantee with a rationale rather than an accident of the dropped
   registration, and `onOpen` no longer runs while an internal lock is held.
 - **A throwing termination action no longer aborts the remaining actions.** Every registered action
-  now runs, and the collected failures are rethrown as a single `AggregateException` at the end.
-  Affects you if you call `Terminate()` or `Dispose()`: **both can now throw**, including at the
-  closing brace of a `using` block, where it can mask an in-flight exception from the block body.
-  Termination is still complete and idempotent — a second `Terminate()` neither re-runs nor re-throws.
-  Nested scopes produce nested aggregates; call `AggregateException.Flatten()` for the leaves.
+  now runs, and only then are the failures reported: **exactly one failure is rethrown as itself**,
+  with its original type and stack trace (via `ExceptionDispatchInfo`), as 1.x let it escape; **two or
+  more are thrown together as one `AggregateException`**, in the order they occurred (reverse
+  registration order). A nested scope's failure reaches its parent as whatever the nested scope threw,
+  so a single failure anywhere in a tree arrives unwrapped and aggregates nest only where one scope
+  collected several; call `AggregateException.Flatten()` for the leaves. `Terminate()` and `Dispose()`
+  can throw at the closing brace of a `using` block, where the exception masks an in-flight one from
+  the block body. Termination is still complete and idempotent — a second `Terminate()` neither re-runs
+  nor re-throws. Migration: keep catching the exception types your clean-up throws, and add
+  `AggregateException` where several clean-ups can fail together.
 - **`Terminate` no longer holds the instance lock while invoking callbacks**, and `AddDefinition` no
   longer calls into another lifetime under its own lock. This removes a parent/child ABBA lock
   inversion that could deadlock. Affects you two ways: termination actions may now freely re-enter the

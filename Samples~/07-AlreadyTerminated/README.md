@@ -35,8 +35,8 @@ between the check and the call.
 - `Run` — the action running *between* the "before" and "after" log lines, i.e. inside the call.
 - `With` disposing immediately, and `AsCancellationToken` returning a pre-cancelled token.
 - `RaceWithTermination` — the ordinary sequence that the old behaviour got wrong.
-- The last block: an exception from an immediate invocation propagates straight out of `AddAction`, as an
-  ordinary exception rather than an `AggregateException` — nothing is being torn down, this ran inline.
+- The last block: an exception from an immediate invocation propagates straight out of `AddAction` —
+  nothing is being torn down, the action ran inline.
 
 ## The one deliberate exception
 

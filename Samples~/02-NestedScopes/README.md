@@ -18,7 +18,8 @@ ends `app` and shows the cascade reaching two levels down.
 
 - **LIFO**: termination actions run in reverse registration order. Last acquired, first released.
 - **Failure isolation** (new in 2.0.0): a throwing termination action no longer aborts the remaining ones.
-  Everything runs, the lifetime terminates, and the failures surface together as one `AggregateException`.
+  Everything runs, the lifetime terminates, and only then is the failure reported: a single failure as the
+  exception itself (original type and stack trace), two or more together as one `AggregateException`.
   Since `Dispose()` is `Terminate()`, that exception can be thrown at the closing brace of a `using` block.
 
 ## Run it

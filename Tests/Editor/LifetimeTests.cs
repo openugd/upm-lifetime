@@ -106,15 +106,11 @@ namespace OpenUGD.Tests
         }
 
         /// <summary>
-        /// Flattens whatever Terminate() threw into its leaf exceptions, so assertions do not depend on how
-        /// deeply nested scopes wrap their AggregateExceptions.
+        /// Throws <paramref name="exception"/> from a frame of its own, so a test can check that the frame
+        /// survives a rethrow.
         /// </summary>
-        private static Exception[] Leaves(Exception exception)
-        {
-            return exception is AggregateException aggregate
-                ? aggregate.Flatten().InnerExceptions.ToArray()
-                : new[] { exception };
-        }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ThrowFromNamedFrame(Exception exception) => throw exception;
 
         // ------------------------------------------------------------------------------------------
         // Eternal, Name / ParentId / Id (R12: debugging aids, but part of the public API)
@@ -921,13 +917,13 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // Throwing termination actions (R4)
+        // Throwing termination actions (R4, LS-16)
         // ------------------------------------------------------------------------------------------
 
         [Test]
-        public void Terminate_WhenActionsThrow_StillRunsAllOfThemAndCollectsEveryException()
+        public void Terminate_WhenSeveralActionsThrow_RunsAllOfThemAndAggregatesTheFailuresInTheOrderTheyOccurred()
         {
-            // R4 + R10.
+            // R4 + R10 + LS-16: two or more failures are reported together, in reverse registration order.
             var definition = NewDefinition("many-throwers");
             var order = new List<string>();
             var first = new MarkerException("first");
@@ -941,28 +937,52 @@ namespace OpenUGD.Tests
             definition.Lifetime.AddAction(() => { order.Add("t3"); throw third; });
             definition.Lifetime.AddAction(() => order.Add("c"));
 
-            var thrown = Assert.Catch<Exception>(() => definition.Terminate());
+            var aggregate = Assert.Throws<AggregateException>(() => definition.Terminate(),
+                "R4: two or more termination failures surface as a single AggregateException.");
 
-            Assert.IsInstanceOf<AggregateException>(thrown,
-                "R4: termination failures surface as a single AggregateException.");
-            CollectionAssert.AreEquivalent(new Exception[] { first, second, third }, Leaves(thrown));
+            CollectionAssert.AreEqual(new Exception[] { third, second, first }, aggregate.InnerExceptions,
+                "The failures are listed in the order they occurred, which is reverse registration order.");
             CollectionAssert.AreEqual(new[] { "c", "t3", "t2", "b", "t1", "a" }, order,
                 "Every action runs exactly once, in reverse registration order, despite the throws.");
         }
 
         [Test]
-        public void Terminate_WithOneThrowingAction_StillReportsItAsAnAggregateException()
+        public void Terminate_WithExactlyOneThrowingAction_RethrowsThatExceptionItselfWithItsStackTrace()
         {
-            // R4 read literally: one collected exception still uses the AggregateException shape, so callers
-            // have exactly one shape to handle.
+            // LS-16: a single failure is not wrapped. It is rethrown with its own type, so the caller's
+            // catch clauses match, and with the frame that threw it, so the trace points at the culprit.
+            // REPLACES Terminate_WithOneThrowingAction_StillReportsItAsAnAggregateException.
             var definition = NewDefinition("single-thrower");
             var boom = new MarkerException("only");
-            definition.Lifetime.AddAction(() => throw boom);
+            var otherRan = false;
+            definition.Lifetime.AddAction(() => otherRan = true);
+            definition.Lifetime.AddAction(() => ThrowFromNamedFrame(boom));
 
-            var aggregate = Assert.Throws<AggregateException>(() => definition.Terminate());
+            var thrown = Assert.Throws<MarkerException>(() => definition.Terminate());
 
-            Assert.AreEqual(1, aggregate.InnerExceptions.Count);
-            Assert.AreSame(boom, aggregate.InnerExceptions[0]);
+            Assert.AreSame(boom, thrown);
+            StringAssert.Contains(nameof(ThrowFromNamedFrame), thrown.StackTrace,
+                "The original throwing frame must survive the rethrow.");
+            Assert.IsTrue(otherRan, "The remaining actions still ran before the failure was reported.");
+            Assert.IsTrue(definition.IsTerminated);
+        }
+
+        [Test]
+        public void Terminate_WithExactlyOneFailureDeepInATree_RethrowsItUnwrappedThroughEveryLevel()
+        {
+            // LS-16 across nesting: each level sees exactly one failure, so none of them wraps it.
+            var root = NewDefinition("tree");
+            var child = root.Lifetime.DefineNested("child");
+            var grandChild = child.Lifetime.DefineNested("grand-child");
+            var boom = new MarkerException("deep");
+            grandChild.Lifetime.AddAction(() => throw boom);
+            child.Lifetime.AddAction(() => { });
+            root.Lifetime.AddAction(() => { });
+
+            var thrown = Assert.Throws<MarkerException>(() => root.Terminate());
+
+            Assert.AreSame(boom, thrown);
+            Assert.IsTrue(grandChild.IsTerminated);
         }
 
         [Test]
@@ -973,7 +993,7 @@ namespace OpenUGD.Tests
             definition.Lifetime.AddAction(() => calls++);
             definition.Lifetime.AddAction(() => throw new MarkerException("boom"));
 
-            Assert.Catch<AggregateException>(() => definition.Terminate());
+            Assert.Throws<MarkerException>(() => definition.Terminate());
 
             Assert.IsTrue(definition.IsTerminated, "The lifetime is terminated even though an action threw.");
             Assert.DoesNotThrow(() => definition.Terminate(), "A second Terminate must not re-run or re-throw.");
@@ -988,7 +1008,7 @@ namespace OpenUGD.Tests
             parent.Lifetime.AddAction(() => throw new MarkerException("boom"));
             var child = parent.Lifetime.DefineNested("child");
 
-            Assert.Throws<AggregateException>(() => parent.Terminate());
+            Assert.Throws<MarkerException>(() => parent.Terminate());
 
             Assert.IsTrue(child.IsTerminated);
         }
@@ -1010,19 +1030,45 @@ namespace OpenUGD.Tests
             var thrown = Assert.Catch<Exception>(() => parent.Terminate());
 
             CollectionAssert.AreEqual(new[] { "parent-last", "parent-first" }, log);
-            CollectionAssert.Contains(Leaves(thrown), boom,
-                "The child's exception must be reported to whoever terminated the parent.");
+            Assert.AreSame(boom, thrown,
+                "The child's only failure must reach whoever terminated the parent, unwrapped.");
             Assert.IsTrue(child.IsTerminated);
             Assert.IsTrue(parent.IsTerminated);
         }
 
         [Test]
-        public void Terminate_NestsAggregatesAlongTheScopeTreeAndFlattensToTheLeaves()
+        public void Terminate_NestsAggregatesOnlyWhereAScopeCollectedSeveralFailures()
         {
-            // Documents a deliberate choice: nested scopes produce nested AggregateExceptions rather than
-            // one flattened list, because that keeps the structure faithful to the scope tree.
-            // AggregateException.Flatten() is one call away for callers who want just the leaves.
+            // Documents a deliberate choice: a scope that collected two or more failures reports them as its
+            // own aggregate, and its parent keeps that aggregate intact rather than flattening it, so the
+            // structure stays faithful to the scope tree. AggregateException.Flatten() is one call away for
+            // callers who want just the leaves.
             var parent = NewDefinition("nesting");
+            var child = parent.Lifetime.DefineNested("child");
+            var childFirst = new MarkerException("child-1");
+            var childSecond = new MarkerException("child-2");
+            var parentBoom = new MarkerException("parent");
+            child.Lifetime.AddAction(() => throw childFirst);
+            child.Lifetime.AddAction(() => throw childSecond);
+            parent.Lifetime.AddAction(() => throw parentBoom);
+
+            var aggregate = Assert.Throws<AggregateException>(() => parent.Terminate());
+
+            Assert.AreEqual(2, aggregate.InnerExceptions.Count);
+            Assert.AreSame(parentBoom, aggregate.InnerExceptions[0], "LIFO: the parent's own action ran first.");
+            var childAggregate = aggregate.InnerExceptions[1] as AggregateException;
+            Assert.IsNotNull(childAggregate, "The child's two failures arrive as the child's own aggregate.");
+            CollectionAssert.AreEqual(new Exception[] { childSecond, childFirst }, childAggregate.InnerExceptions);
+            CollectionAssert.AreEquivalent(
+                new Exception[] { childFirst, childSecond, parentBoom },
+                aggregate.Flatten().InnerExceptions.ToArray());
+        }
+
+        [Test]
+        public void Terminate_DoesNotWrapAChildsSingleFailureWhenAggregatingTheParents()
+        {
+            // The other half of the rule: a child that failed once contributes that exception itself.
+            var parent = NewDefinition("flat");
             var child = parent.Lifetime.DefineNested("child");
             var childBoom = new MarkerException("child");
             var parentBoom = new MarkerException("parent");
@@ -1031,11 +1077,7 @@ namespace OpenUGD.Tests
 
             var aggregate = Assert.Throws<AggregateException>(() => parent.Terminate());
 
-            Assert.IsTrue(aggregate.InnerExceptions.Any(e => e is AggregateException),
-                "The child's failure arrives wrapped in its own aggregate.");
-            CollectionAssert.AreEquivalent(
-                new Exception[] { childBoom, parentBoom },
-                aggregate.Flatten().InnerExceptions.ToArray());
+            CollectionAssert.AreEqual(new Exception[] { parentBoom, childBoom }, aggregate.InnerExceptions);
         }
 
         // ------------------------------------------------------------------------------------------

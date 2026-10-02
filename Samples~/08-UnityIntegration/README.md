@@ -26,8 +26,8 @@ public surface is a `Lifetime` property, so other components can register clean-
 scope. Nest these on nested GameObjects and the scopes nest with them, because `OnDestroy` already
 cascades down the transform hierarchy.
 
-`Terminate()` may throw an `AggregateException` out of `OnDestroy` if a clean-up action throws. That is
-fine: Unity logs it, and every other clean-up has already run by then.
+`Terminate()` rethrows a clean-up action's exception out of `OnDestroy` (an `AggregateException` if several
+throw). That is fine: Unity logs it, and every other clean-up has already run by then.
 
 ### `ScopedConsumer.cs`
 
