@@ -500,6 +500,170 @@ namespace OpenUGD.Tests
             }, 30000, "R3: concurrent Intersection/Terminate deadlocked.");
         }
 
+        [Test]
+        public void ConcurrentOutOfOrderDetachOnASharedParent_RunsEveryChildExactlyOnce()
+        {
+            // LS-4 under contention: detach empties a slot by index, and compaction moves the survivors and
+            // rewrites their indices, while other threads keep appending to and detaching from the same
+            // parent. Each thread keeps a quarter of its children alive for the parent's own teardown.
+            const int threads = 8;
+            const int perThread = 2000;
+
+            var parent = _root.Lifetime.DefineNested("shared-parent");
+            var runs = new int[threads * perThread];
+            var errors = new ConcurrentQueue<Exception>();
+
+            RunWithTimeout(() =>
+            {
+                using (var barrier = new Barrier(threads))
+                {
+                    var workers = new Task[threads];
+                    for (var t = 0; t < threads; t++)
+                    {
+                        var thread = t;
+                        workers[t] = Task.Run(() =>
+                        {
+                            try
+                            {
+                                var random = new Random(thread);
+                                var mine = new List<Lifetime.Definition>(perThread);
+                                barrier.SignalAndWait();
+                                for (var i = 0; i < perThread; i++)
+                                {
+                                    var slot = thread * perThread + i;
+                                    var child = parent.Lifetime.DefineNested();
+                                    child.Lifetime.AddAction(() => Interlocked.Increment(ref runs[slot]));
+                                    mine.Add(child);
+
+                                    // Detach a random earlier child now and then, so removals land
+                                    // everywhere in the parent's sequence, not just at its end.
+                                    if (mine.Count > 4 && random.Next(4) != 0)
+                                    {
+                                        var index = random.Next(mine.Count);
+                                        mine[index].Terminate();
+                                        mine.RemoveAt(index);
+                                    }
+                                }
+                            }
+                            catch (Exception exception)
+                            {
+                                errors.Enqueue(exception);
+                            }
+                        });
+                    }
+
+                    Task.WaitAll(workers);
+                }
+
+                parent.Terminate();
+            }, 30000, "LS-4: concurrent out-of-order detach deadlocked.");
+
+            CollectionAssert.IsEmpty(errors);
+            var wrong = Enumerable.Range(0, runs.Length).Where(i => Volatile.Read(ref runs[i]) != 1).ToArray();
+            CollectionAssert.IsEmpty(wrong,
+                "Every child must run exactly once - early-detached ones at their own termination, the rest " +
+                "in the parent's teardown.");
+        }
+
+        // ------------------------------------------------------------------------------------------
+        // LS-4: terminating many children is linear, not quadratic
+        // ------------------------------------------------------------------------------------------
+
+        public enum DetachOrder
+        {
+            NewestFirst,
+            OldestFirst,
+            Shuffled
+        }
+
+        [Test]
+        [Category("Performance")]
+        public void DetachingTwentyThousandChildrenOneByOne_CostsAboutAsMuchAsTheParentsCascade(
+            [Values] DetachOrder order)
+        {
+            // LS-4: before the fix a child detached with List.Remove and delegate equality - an O(n) scan or
+            // shift per child, so terminating n children one by one cost O(n^2) (audit: 10k roots 313 ms,
+            // 40k 2.5 s). The test calibrates itself on the machine and runtime it runs on: detaching N
+            // children one by one must cost about as much as letting the parent's cascade terminate N
+            // children, which needs no removal at all. Measured on .NET 10 at N = 20,000: the cascade takes
+            // about 0.7 ms and O(1) detach 1-2 ms in every order, while the List.Remove version took 574 ms
+            // newest-first and 294 ms shuffled. The bound - 10x the cascade plus 30 ms, best of three - leaves
+            // an order of magnitude for slow runtimes and noisy machines on both sides.
+            const int count = 20000;
+
+            var detach = TimeSpan.MaxValue;
+            var cascade = TimeSpan.MaxValue;
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                detach = Min(detach, MeasureDetachOneByOne(count, order, attempt));
+                cascade = Min(cascade, MeasureCascade(count));
+            }
+
+            var bound = TimeSpan.FromTicks(cascade.Ticks * 10) + TimeSpan.FromMilliseconds(30);
+            Assert.Less(detach, bound,
+                $"Detaching {count} children ({order}) took {detach.TotalMilliseconds:F1} ms against a cascade " +
+                $"of {cascade.TotalMilliseconds:F1} ms: detach is not O(1).");
+        }
+
+        private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
+
+        private TimeSpan MeasureDetachOneByOne(int count, DetachOrder order, int seed)
+        {
+            var parent = _root.Lifetime.DefineNested("detach-" + order);
+            var children = new Lifetime.Definition[count];
+            for (var i = 0; i < count; i++)
+            {
+                children[i] = parent.Lifetime.DefineNested();
+            }
+
+            switch (order)
+            {
+                case DetachOrder.NewestFirst:
+                    Array.Reverse(children);
+                    break;
+                case DetachOrder.Shuffled:
+                    var random = new Random(seed);
+                    for (var i = count - 1; i > 0; i--)
+                    {
+                        var j = random.Next(i + 1);
+                        (children[i], children[j]) = (children[j], children[i]);
+                    }
+
+                    break;
+            }
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            foreach (var child in children)
+            {
+                child.Terminate();
+            }
+
+            stopwatch.Stop();
+
+            var lastAction = 0;
+            parent.Lifetime.AddAction(() => lastAction++);
+            parent.Terminate();
+            Assert.AreEqual(1, lastAction, "The parent must stay usable after every child detached.");
+            return stopwatch.Elapsed;
+        }
+
+        private TimeSpan MeasureCascade(int count)
+        {
+            var parent = _root.Lifetime.DefineNested("cascade");
+            var children = new Lifetime.Definition[count];
+            for (var i = 0; i < count; i++)
+            {
+                children[i] = parent.Lifetime.DefineNested();
+            }
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            parent.Terminate();
+            stopwatch.Stop();
+
+            Assert.IsTrue(children.All(child => child.IsTerminated));
+            return stopwatch.Elapsed;
+        }
+
         // ------------------------------------------------------------------------------------------
         // R9: the practical reason AsCancellationToken exists
         // ------------------------------------------------------------------------------------------

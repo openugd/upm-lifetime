@@ -203,15 +203,25 @@ namespace OpenUGD
         /// </remarks>
         public static readonly Lifetime Eternal = new Lifetime();
 
-        // The one and only lock of this type. It is taken exclusively around reads and writes of the two
-        // fields below - never around a call to user code, and never around a call into another Lifetime.
-        // Every lock block in this file is a handful of straight-line field operations; verify by eye.
+        // The size of the first entry array, and the size up to which an array is never shrunk (see Compact).
+        private const int InitialCapacity = 4;
+        private const int ShrinkThreshold = 64;
+
+        // The one and only lock of this type. It is taken exclusively around reads and writes of the fields
+        // below (and of Child.Index) - never around a call to user code, and never around a call into another
+        // Lifetime. Every lock block in this file is straight-line field and array operations; verify by eye.
         private readonly object _lock = new object();
         private readonly int _id;
 
-        // Registered actions. Null means "none": either nothing has been registered yet (allocation is
-        // deferred) or the list has been handed off to Terminate. Only ever touched under _lock.
-        private List<Action> _actions;
+        // The registration sequence, oldest first. Each slot holds an Action, a Child (a nested definition),
+        // or null: a child that terminated first and detached. Detaching empties its slot by index, which is
+        // O(1); Compact squeezes the empty slots out once they are more than half of the used range, so the
+        // cost is amortised O(1) per detach and terminating n children one by one is O(n).
+        // Null array means "none": nothing registered yet (allocation is deferred), or handed off to
+        // Terminate. Only ever touched under _lock.
+        private object[] _entries;
+        private int _count;      // used slots, empty ones included; the next registration goes to _count
+        private int _emptySlots; // null slots below _count
 
         // Written under _lock, read anywhere. Volatile only so that the lock-free read in IsTerminated
         // cannot be hoisted or reordered; the correctness of AddAction and Terminate does not depend on it,
@@ -250,9 +260,10 @@ namespace OpenUGD
         /// <remarks>
         /// <para>
         /// Terminating the returned definition first detaches it from this lifetime, so a long-lived parent
-        /// with many short-lived children does not accumulate dead entries. The child's termination is
-        /// registered in this lifetime's single LIFO sequence, interleaved with its actions: a child created
-        /// after an action is terminated before that action runs.
+        /// with many short-lived children does not accumulate dead entries. Detaching costs amortised O(1)
+        /// however many siblings the child has, so ending n children one by one is linear in n. The child's
+        /// termination is registered in this lifetime's single LIFO sequence, interleaved with its actions: a
+        /// child created after an action is terminated before that action runs.
         /// </para>
         /// <para>
         /// <b>If this lifetime is already terminated, the returned definition is already terminated</b>,
@@ -371,8 +382,7 @@ namespace OpenUGD
             {
                 if (!_isTerminated)
                 {
-                    // Lazily allocated: a lifetime that never receives an action never allocates a list.
-                    (_actions ??= new List<Action>()).Add(action);
+                    Append(action);
                     return this;
                 }
             }
@@ -442,41 +452,134 @@ namespace OpenUGD
         /// </summary>
         private void AddDefinition(Definition definition)
         {
-            // Captured once, so the registration below and its removal are the same delegate value.
-            Action terminateChild = definition.Terminate;
-
-            bool registered;
+            Child child = null;
             lock (_lock)
             {
-                registered = !_isTerminated;
-                if (registered) (_actions ??= new List<Action>()).Add(terminateChild);
+                if (!_isTerminated)
+                {
+                    child = new Child(this, definition);
+                    child.Index = Append(child);
+                }
             }
 
             // Both branches below reach into ANOTHER Lifetime, so neither may run under _lock. Taking the
             // child's lock while holding the parent's is precisely the parent->child edge that used to
-            // invert against the child->parent edge of the removal closure below.
-            if (!registered)
+            // invert against the child->parent edge of Detach below.
+            if (child == null)
             {
                 definition.Terminate();
                 return;
             }
 
-            // If the child terminates first, drop its entry from our list, so a long-lived parent with many
-            // short-lived children does not accumulate dead delegates. If the child is already terminated
-            // (Intersection can do that), AddAction runs this immediately and the entry is dropped now.
-            definition.Lifetime.AddAction(() => Remove(terminateChild));
+            // If the child terminates first, empty its slot, so a long-lived parent with many short-lived
+            // children does not accumulate dead entries. If the child is already terminated (Intersection
+            // can do that), AddAction runs this immediately and the slot is emptied now.
+            definition.Lifetime.AddAction(child.Detach);
         }
 
         /// <summary>
-        /// Removes one registration of <paramref name="action"/>. A no-op once terminated: the list has
-        /// already been handed off and every entry has already run.
+        /// Appends <paramref name="entry"/> to the registration sequence and returns its slot. Caller holds
+        /// <see cref="_lock"/> and has checked that this lifetime is not terminated.
         /// </summary>
-        private void Remove(Action action)
+        private int Append(object entry)
+        {
+            // Lazily allocated: a lifetime that never receives a registration never allocates an array.
+            if (_entries == null) _entries = new object[InitialCapacity];
+            else if (_count == _entries.Length) Array.Resize(ref _entries, _count * 2);
+
+            _entries[_count] = entry;
+            return _count++;
+        }
+
+        /// <summary>
+        /// Empties the slot of <paramref name="child"/>, which terminated before this lifetime did. O(1),
+        /// amortised. A no-op once this lifetime is terminated: the entries have been handed off, and the
+        /// child has run or is about to.
+        /// </summary>
+        private void Detach(Child child)
         {
             lock (_lock)
             {
-                _actions?.Remove(action);
+                var index = child.Index;
+                if (_isTerminated || index < 0) return;
+
+                child.Index = -1;
+                _entries[index] = null;
+                _emptySlots++;
+
+                // Short-lived scopes usually end newest first, so most detaches just shorten the used range.
+                while (_count > 0 && _entries[_count - 1] == null)
+                {
+                    _count--;
+                    _emptySlots--;
+                }
+
+                // More than half of the used range empty, or a large array mostly unused after a burst.
+                if (_emptySlots * 2 > _count || (_entries.Length > ShrinkThreshold && _count * 4 < _entries.Length))
+                    Compact();
             }
+        }
+
+        /// <summary>
+        /// Squeezes the empty slots out of the registration sequence, preserving its order, and rewrites the
+        /// slot of every child that moves. Shrinks the array when it is mostly unused. Caller holds
+        /// <see cref="_lock"/>. O(used range), paid for by the detaches that emptied at least half of it.
+        /// </summary>
+        private void Compact()
+        {
+            var source = _entries;
+            var live = _count - _emptySlots;
+            if (live == 0)
+            {
+                _entries = null;
+                _count = 0;
+                _emptySlots = 0;
+                return;
+            }
+
+            var target = source.Length > ShrinkThreshold && live * 4 < source.Length
+                ? new object[Math.Max(InitialCapacity, live * 2)]
+                : source;
+
+            var write = 0;
+            for (var read = 0; read < _count; read++)
+            {
+                var entry = source[read];
+                if (entry == null) continue;
+                if (entry is Child child) child.Index = write;
+                target[write++] = entry;
+            }
+
+            if (target == source) Array.Clear(source, write, _count - write);
+
+            _entries = target;
+            _count = write;
+            _emptySlots = 0;
+        }
+
+        /// <summary>
+        /// The registration of one nested definition in one parent: an entry in the parent's sequence that
+        /// knows its own slot, so the child can leave in O(1). A definition attached to several parents (an
+        /// intersection) has one of these per parent.
+        /// </summary>
+        private sealed class Child
+        {
+            private readonly Lifetime _parent;
+
+            // The slot in _parent._entries, or -1 once detached or before it is appended. Read and written
+            // only under _parent._lock.
+            internal int Index = -1;
+
+            internal Child(Lifetime parent, Definition definition)
+            {
+                _parent = parent;
+                Definition = definition;
+            }
+
+            internal Definition Definition { get; }
+
+            // Registered on the child's own lifetime: runs when the child terminates.
+            internal void Detach() => _parent.Detach(this);
         }
 
         /// <summary>
@@ -485,31 +588,40 @@ namespace OpenUGD
         /// </summary>
         private void Terminate()
         {
-            List<Action> actions;
+            object[] entries;
+            int count;
 
             lock (_lock)
             {
-                // Idempotence, the state flip and the hand-off of the action list all happen inside one
-                // critical section. That is the whole of the exactly-once argument: AddAction takes the
-                // same lock, so it either appended before this point (and is therefore in `actions`), or it
-                // observes _isTerminated and invokes inline. It can never do both, and never neither.
+                // Idempotence, the state flip and the hand-off of the entries all happen inside one critical
+                // section. That is the whole of the exactly-once argument: AddAction and AddDefinition take
+                // the same lock, so a registration either landed before this point (and is therefore in
+                // `entries`), or it observes _isTerminated and runs inline. It can never do both, and never
+                // neither. Detach observes _isTerminated too, so nothing touches `entries` after the hand-off.
                 if (_isTerminated) return;
                 _isTerminated = true;
-                actions = _actions;
-                _actions = null;
+                entries = _entries;
+                count = _count;
+                _entries = null;
+                _count = 0;
+                _emptySlots = 0;
             }
 
-            if (actions == null) return;
+            if (entries == null) return;
 
             // From here on NO lock is held, and this lifetime is already terminated for every observer.
             // An action is free to call back into this lifetime, its parent or its children, and to throw.
             Exception failure = null;
             List<Exception> failures = null;
-            for (var i = actions.Count - 1; i >= 0; i--)
+            for (var i = count - 1; i >= 0; i--)
             {
+                var entry = entries[i];
+                if (entry == null) continue; // a child that detached first
+
                 try
                 {
-                    actions[i].Invoke();
+                    if (entry is Action action) action();
+                    else ((Child)entry).Definition.Terminate();
                 }
                 catch (Exception exception)
                 {

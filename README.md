@@ -157,7 +157,8 @@ All extension methods throw `ArgumentNullException` for a null lifetime or dispo
 
 `lifetime.DefineNested(name)` creates a child that ends with `lifetime`; `Lifetime.Intersection(a, b, ...)`
 creates a scope that ends with whichever of its inputs ends first. Both can be ended early by their owner,
-and then detach themselves, so a long-lived parent does not accumulate dead children. There is no third
+and then detach themselves, so a long-lived parent does not accumulate dead children; a detach costs O(1)
+(amortised) however many siblings there are, so ending thousands of scopes is linear. There is no third
 way: `With` on a `Definition` compiles (a definition is an `IDisposable`) but neither nests it nor detaches
 it.
 

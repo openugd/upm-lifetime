@@ -1222,6 +1222,81 @@ namespace OpenUGD.Tests
         }
 
         [Test]
+        public void TerminatingAChildBetweenLiveSiblings_ReleasesTheParentsReferenceToIt()
+        {
+            // LS-4: a child detached from the middle of the parent's sequence leaves an empty slot rather
+            // than shifting its siblings. The slot must not keep the child reachable.
+            var parent = NewDefinition("parent");
+            var before = parent.Lifetime.DefineNested("before");
+            var weakChild = CreateAndTerminateChild(parent.Lifetime);
+            var after = parent.Lifetime.DefineNested("after");
+
+            for (var i = 0; i < 3; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+
+            Assert.IsFalse(weakChild.IsAlive,
+                "A terminated child between live siblings must no longer be referenced by its parent.");
+            Assert.IsFalse(before.IsTerminated);
+            Assert.IsFalse(after.IsTerminated);
+            GC.KeepAlive(parent);
+        }
+
+        [Test]
+        public void DetachingChildrenInAnyOrder_KeepsEveryRemainingEntryInStrictLifoOrder([Values(1, 2, 3)] int seed)
+        {
+            // LS-4: detach is O(1) via slots, empty slots and compaction, all of which move entries around
+            // inside the parent. A model-based check: random registrations and early terminations against a
+            // plain list of what should remain, then the parent's teardown must match the model exactly -
+            // every survivor once, in reverse registration order, and no early-terminated child again.
+            var random = new Random(seed);
+            var parent = NewDefinition("model-" + seed);
+            var log = new List<string>();
+            var model = new List<string>();
+            var liveChildren = new List<KeyValuePair<string, Lifetime.Definition>>();
+
+            for (var step = 0; step < 3000; step++)
+            {
+                var roll = random.Next(10);
+                var label = "e" + step;
+                if (roll < 3)
+                {
+                    parent.Lifetime.AddAction(() => log.Add(label));
+                    model.Add(label);
+                }
+                else if (roll < 7 || liveChildren.Count == 0)
+                {
+                    var child = parent.Lifetime.DefineNested(label);
+                    child.Lifetime.AddAction(() => log.Add(label));
+                    model.Add(label);
+                    liveChildren.Add(new KeyValuePair<string, Lifetime.Definition>(label, child));
+                }
+                else
+                {
+                    // Early termination of a random live child: logs now, and must vanish from the parent.
+                    var index = random.Next(liveChildren.Count);
+                    var victim = liveChildren[index];
+                    liveChildren.RemoveAt(index);
+                    model.Remove(victim.Key);
+
+                    var logged = log.Count;
+                    victim.Value.Terminate();
+                    CollectionAssert.AreEqual(new[] { victim.Key }, log.Skip(logged).ToArray());
+                }
+            }
+
+            log.Clear();
+            parent.Terminate();
+
+            model.Reverse();
+            CollectionAssert.AreEqual(model, log,
+                "The parent's teardown must run exactly the surviving entries, once each, in LIFO order.");
+            Assert.IsTrue(liveChildren.All(pair => pair.Value.IsTerminated));
+        }
+
+        [Test]
         public void RepeatedlyCreatingAndTerminatingNestedScopes_LeavesTheParentUsable()
         {
             // The container's per-scope teardown pattern: it must stay correct over many iterations.

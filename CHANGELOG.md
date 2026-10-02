@@ -64,6 +64,12 @@ read Changed and Removed before upgrading.
   the block body. Termination is still complete and idempotent — a second `Terminate()` neither re-runs
   nor re-throws. Migration: keep catching the exception types your clean-up throws, and add
   `AggregateException` where several clean-ups can fail together.
+- **Detaching a nested definition is amortised O(1)**, so terminating n scopes one by one is linear in n.
+  A child that ends first used to be removed from its parent with `List.Remove` and delegate equality,
+  an O(n) scan or shift per child; with every root sharing `Lifetime.Eternal`, terminating 10,000 roots
+  took 313 ms and 40,000 took 2.5 s. Each registration is now a slot in the parent; a detaching child
+  empties its own slot, and the sequence is compacted once more than half of it is empty. LIFO order,
+  exactly-once and the thread-safety guarantees are unchanged. No API change.
 - **`Terminate` no longer holds the instance lock while invoking callbacks**, and `AddDefinition` no
   longer calls into another lifetime under its own lock. This removes a parent/child ABBA lock
   inversion that could deadlock. Affects you two ways: termination actions may now freely re-enter the
@@ -100,7 +106,7 @@ read Changed and Removed before upgrading.
 - Assembly definition now declares `rootNamespace` `OpenUGD`, `noEngineReferences: true` and the full
   canonical key set instead of relying on editor defaults.
 - README rewritten with install instructions, a quick start and an API overview.
-- The package now ships its own test assembly (`Tests/Editor`, 85 tests, gated on `UNITY_INCLUDE_TESTS`).
+- The package now ships its own test assembly (`Tests/Editor`, 96 tests, gated on `UNITY_INCLUDE_TESTS`).
 
 ### Removed
 - **`Lifetime.Define(Lifetime, string)`, `Lifetime.Definition.Define(Lifetime, string)` and
@@ -115,8 +121,8 @@ read Changed and Removed before upgrading.
   `IDisposable` now dispatches to the public method.
 - **The static `Stack<List<Action>>` pool.** It was popped under `lock(_pool)` in the constructor and
   pushed under the instance lock in `Terminate` — unsynchronized mutation of a shared `Stack` that
-  could hand the same `List<Action>` to two live lifetimes. Each lifetime now allocates its own list,
-  lazily. No API change.
+  could hand the same `List<Action>` to two live lifetimes. Each lifetime now allocates its own entry
+  array, lazily. No API change.
 - **Deduplication in `AddDefinition`.** Attaching the same definition to the same parent twice now
   registers twice, which is harmless: `Terminate` is idempotent and each attach registers its own
   detach. Removes another O(n) scan.
