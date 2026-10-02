@@ -4,8 +4,7 @@ The everyday shape for an operation with a beginning and an end.
 
 `Lifetime.Definition` implements `IDisposable`, so `using` / `using var` works. The closing brace ends the
 scope and runs everything registered inside it, LIFO — including registrations made by helpers you called
-and never looked inside. `Dispose()` is a plain public method, not an explicit interface implementation, so
-`using` on a `Definition` local does not box.
+and never looked inside.
 
 ## The implicit conversion is a capability downgrade
 
@@ -20,6 +19,11 @@ var atlas = LoadAtlas(scope, ...);   // LoadAtlas(Lifetime, ...) — no `.Lifeti
 The conversion only goes one way. Passing `scope` to a helper hands it the *observe and register*
 capability and keeps the *terminate* capability at home — the split from sample 01, enforced for free at
 every call boundary.
+
+It applies to arguments, assignments and return values only: C# never applies a user-defined conversion to
+the receiver of a member or extension-method call. Registering on the scope itself is still
+`scope.Lifetime.AddAction(...)`, and `scope.AsCancellationToken()` does not compile — write
+`scope.Lifetime.AsCancellationToken()`.
 
 ## What to look at
 

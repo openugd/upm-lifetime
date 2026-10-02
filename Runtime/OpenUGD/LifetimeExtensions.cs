@@ -26,7 +26,23 @@ namespace OpenUGD
         /// instance on two lifetimes disposes it twice, so either register it once or use a type whose
         /// <c>Dispose</c> is idempotent.
         /// </para>
+        /// <para>
+        /// <b>Returns the static type it was given</b>, so construction, ownership and use fit in one
+        /// declaration: <c>var stream = File.OpenRead(path).With(lifetime);</c> gives a
+        /// <c>FileStream</c>. <i>Changed in 2.0.0</i> — the return type used to be <see cref="IDisposable"/>.
+        /// For a value type <typeparamref name="T"/>, the lifetime disposes a boxed copy taken at this call,
+        /// not the value returned to you; prefer reference types here.
+        /// </para>
+        /// <para>
+        /// <b>Not for a <see cref="Lifetime.Definition"/>.</b> <c>definition.With(other)</c> compiles,
+        /// because a definition is an <see cref="IDisposable"/>, but it registers a plain action: the
+        /// definition is not nested in <c>other</c>, and if it ends first it stays referenced by
+        /// <c>other</c> until <c>other</c> ends. Create the scope with <c>other.DefineNested()</c>, or with
+        /// <see cref="Lifetime.Intersection"/> when it must end with either of two lifetimes; both detach
+        /// when the scope ends first.
+        /// </para>
         /// </remarks>
+        /// <typeparam name="T">The static type of the resource; returned unchanged.</typeparam>
         /// <param name="disposable">The resource to tie to the scope.</param>
         /// <param name="lifetime">The lifetime that owns it.</param>
         /// <returns>
@@ -35,7 +51,7 @@ namespace OpenUGD
         /// <exception cref="ArgumentNullException">
         /// <paramref name="lifetime"/> or <paramref name="disposable"/> is <c>null</c>.
         /// </exception>
-        public static IDisposable With(this IDisposable disposable, Lifetime lifetime)
+        public static T With<T>(this T disposable, Lifetime lifetime) where T : IDisposable
         {
             if (lifetime == null)
             {

@@ -6,8 +6,8 @@ Scopes form a tree. `parent.DefineNested("child")` wires the child's termination
 - terminating a **child** first unregisters it from the parent, so a long-lived parent with many
   short-lived children does not accumulate dead entries;
 - a child never kills its parent or its siblings;
-- `DefineNested` on an already-terminated lifetime **throws** `InvalidOperationException` — you can never
-  end up with a live child of a dead parent.
+- `DefineNested` on an already-terminated lifetime returns a definition that is **born terminated** —
+  you can never end up with a live child of a dead parent, and clean-up registered on it runs at once.
 
 ## What to look at
 

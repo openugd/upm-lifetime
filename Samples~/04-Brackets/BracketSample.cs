@@ -37,7 +37,7 @@ namespace OpenUGD.Samples.Brackets
             if (log == null) throw new ArgumentNullException(nameof(log));
 
             log("-- brackets close LIFO, interleaved with plain actions in one sequence --");
-            using (var scope = Lifetime.Define(Lifetime.Eternal, "brackets"))
+            using (var scope = Lifetime.Eternal.DefineNested("brackets"))
             {
                 Lifetime lifetime = scope.Lifetime;
 
@@ -60,7 +60,7 @@ namespace OpenUGD.Samples.Brackets
             // Output order on close: lock released, plain action, file closed.
 
             log("-- AddBracket returns the lifetime, so brackets chain --");
-            using (var scope = Lifetime.Define(Lifetime.Eternal, "chained"))
+            using (var scope = Lifetime.Eternal.DefineNested("chained"))
             {
                 scope.Lifetime
                     .AddBracket(() => log("  A: on"), () => log("  A: off"))
@@ -69,7 +69,7 @@ namespace OpenUGD.Samples.Brackets
             }
 
             log("-- a bracket on a dead scope acquires nothing, so it releases nothing --");
-            var dead = Lifetime.Define(Lifetime.Eternal, "dead");
+            var dead = Lifetime.Eternal.DefineNested("dead");
             dead.Terminate();
 
             dead.Lifetime.AddBracket(
@@ -83,7 +83,7 @@ namespace OpenUGD.Samples.Brackets
             dead.Lifetime.AddAction(() => log("  AddAction on a dead scope ran immediately"));
 
             log("-- if onOpen throws, nothing is registered --");
-            using (var scope = Lifetime.Define(Lifetime.Eternal, "throwing-open"))
+            using (var scope = Lifetime.Eternal.DefineNested("throwing-open"))
             {
                 try
                 {

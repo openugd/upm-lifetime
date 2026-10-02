@@ -35,8 +35,8 @@ namespace OpenUGD.Samples.UnityIntegration
 
         private void OnEnable()
         {
-            // A child scope for "while enabled". DefineNested throws if the parent has already
-            // terminated, which cannot happen here: a destroyed object does not get OnEnable.
+            // A child scope for "while enabled". Had the object scope already ended, DefineNested would
+            // return a born-terminated child and the bracket below would do nothing, so no guard is needed.
             _enabledScope = _scope.Lifetime.DefineNested(name + ":enabled");
 
             // Acquire/release as one expression (sample 04). The release half is not written anywhere

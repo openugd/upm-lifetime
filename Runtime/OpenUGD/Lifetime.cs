@@ -17,9 +17,16 @@ namespace OpenUGD
     /// out a <see cref="Lifetime"/> hands out no authority to kill it.
     /// </para>
     /// <para>
+    /// <b>Creating scopes.</b> There are exactly two ways: <see cref="DefineNested"/> creates a child that
+    /// ends when this lifetime ends, and <see cref="Intersection"/> creates a scope that ends when any of
+    /// several lifetimes ends. Either kind can also be ended early by its owner, and then detaches itself.
+    /// The root of every tree is <see cref="Eternal"/>.
+    /// </para>
+    /// <para>
     /// <b>Core invariant.</b> Every action handed to a lifetime runs exactly once. If the lifetime is alive,
     /// the action runs at termination; if the lifetime is already terminated, the action runs immediately,
     /// inside the <see cref="AddAction"/> call. There is no state in which an action is silently dropped.
+    /// The same rule covers scopes: a scope created on a terminated lifetime is born terminated.
     /// </para>
     /// <para>
     /// <b>Order.</b> Termination actions run in reverse registration order (LIFO). This is a guarantee, not
@@ -30,11 +37,8 @@ namespace OpenUGD
     /// runs, so a termination action may freely call back into this lifetime, its parent, or its children.
     /// </para>
     /// <para>
-    /// <b>Breaking changes in 2.0.0.</b> <see cref="AddAction"/> now invokes immediately on a terminated
-    /// lifetime instead of silently dropping the action, and no longer rejects duplicate delegates;
-    /// <see cref="AddBracket"/> now invokes <c>onOpen</c> before registering <c>onTerminate</c>; a throwing
-    /// termination action no longer aborts the remaining ones, and termination reports failures as an
-    /// <see cref="AggregateException"/>. See the package CHANGELOG.
+    /// 2.0.0 changes the behaviour and the shape of this type in several breaking ways; the package
+    /// CHANGELOG lists each one with a migration hint.
     /// </para>
     /// </remarks>
     public class Lifetime
@@ -45,20 +49,37 @@ namespace OpenUGD
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <see cref="Definition"/> implements <see cref="IDisposable"/>, so it composes with <c>using</c>
-        /// and <c>using var</c>. <see cref="Dispose"/> is an ordinary public method rather than an explicit
-        /// interface implementation, so <c>using</c> on a <see cref="Definition"/> local does not box.
+        /// A definition is created by <see cref="OpenUGD.Lifetime.DefineNested"/> or
+        /// <see cref="OpenUGD.Lifetime.Intersection"/>; it has no public constructor. It implements
+        /// <see cref="IDisposable"/>, so it composes with <c>using</c> and <c>using var</c>.
+        /// </para>
+        /// <para>
+        /// <b>The implicit conversion to <see cref="OpenUGD.Lifetime"/></b> applies wherever the compiler
+        /// converts an expression to that type: an argument, an assignment, a return value. It does
+        /// <i>not</i> apply to member access, because C# never applies a user-defined conversion to the
+        /// receiver of an instance or extension method. So <c>Load(scope)</c> compiles for
+        /// <c>Load(Lifetime)</c>, while <c>scope.AddAction(...)</c>, <c>scope.DefineNested()</c> and
+        /// <c>scope.AsCancellationToken()</c> do not: write <c>scope.Lifetime.AddAction(...)</c>.
+        /// </para>
+        /// <para>
+        /// <b>Do not call <see cref="LifetimeExtensions.With{T}"/> on a definition.</b>
+        /// <c>scope.With(other)</c> compiles, because a definition is an <see cref="IDisposable"/>, but it
+        /// neither nests <c>scope</c> in <c>other</c> nor detaches when <c>scope</c> ends first: it adds a
+        /// plain action to <c>other</c> that keeps <c>scope</c> reachable until <c>other</c> ends. Create the
+        /// scope where it belongs instead — <c>other.DefineNested()</c>, or
+        /// <c>Lifetime.Intersection(parent, other)</c> when it must end with either of two lifetimes.
         /// </para>
         /// <code>
         /// using var scope = lifetime.DefineNested("load-level");
-        /// Load(scope); // implicit conversion Definition -&gt; Lifetime
+        /// Load(scope);                       // implicit conversion: Load takes a Lifetime
+        /// scope.Lifetime.AddAction(Unload);  // member access needs .Lifetime
         /// </code>
         /// </remarks>
         public class Definition : IDisposable
         {
-            private Definition(string id, int parentId)
+            internal Definition(string name, int parentId)
             {
-                Id = id;
+                Name = name;
                 ParentId = parentId;
                 Lifetime = new Lifetime();
             }
@@ -69,13 +90,13 @@ namespace OpenUGD
             /// required to be unique; it exists only to make a lifetime tree readable in a debugger or a
             /// log. May be <c>null</c>.
             /// </summary>
-            public string Id { get; }
+            public string Name { get; }
 
             /// <summary>
             /// [used for debugging purposes]
             /// The <see cref="OpenUGD.Lifetime.Id"/> of the lifetime this definition was defined on.
             /// Carries no semantics; it exists only to make the lifetime tree readable while debugging.
-            /// For a definition produced by <see cref="Intersection"/> this is the id of
+            /// For a definition produced by <see cref="OpenUGD.Lifetime.Intersection"/> this is the id of
             /// <see cref="OpenUGD.Lifetime.Eternal"/>, not of any of the intersected lifetimes.
             /// </summary>
             public int ParentId { get; }
@@ -123,85 +144,21 @@ namespace OpenUGD
             public void Dispose() => Lifetime.Terminate();
 
             /// <summary>
-            /// Converts a definition to the lifetime it owns, so scope code never has to write
-            /// <c>.Lifetime</c>. Null-safe.
+            /// Converts a definition to the lifetime it owns, so a definition can be passed wherever a
+            /// <see cref="OpenUGD.Lifetime"/> is expected. Null-safe.
             /// </summary>
+            /// <remarks>
+            /// The conversion is one-way, so passing a definition to a method that takes a
+            /// <see cref="OpenUGD.Lifetime"/> hands over the right to observe and register, never the right
+            /// to terminate. It does not apply to member access — see the remarks on
+            /// <see cref="Definition"/>.
+            /// </remarks>
             /// <param name="definition">The definition to convert; may be <c>null</c>.</param>
             /// <returns>
             /// The owned <see cref="OpenUGD.Lifetime"/>, or <c>null</c> if <paramref name="definition"/>
             /// is <c>null</c>.
             /// </returns>
             public static implicit operator Lifetime(Definition definition) => definition?.Lifetime;
-
-            /// <summary>
-            /// Creates a definition whose lifetime is nested in <paramref name="lifetime"/>: when
-            /// <paramref name="lifetime"/> terminates, the new lifetime terminates too. Terminating the new
-            /// definition first unregisters it from <paramref name="lifetime"/>, so a long-lived parent with
-            /// many short-lived children does not accumulate dead entries.
-            /// </summary>
-            /// <param name="lifetime">The parent lifetime. Must not be <c>null</c> and must be alive.</param>
-            /// <param name="id">[used for debugging purposes] Optional name for the new definition.</param>
-            /// <returns>The new definition. The caller owns it and is responsible for terminating it.</returns>
-            /// <exception cref="ArgumentNullException"><paramref name="lifetime"/> is <c>null</c>.</exception>
-            /// <exception cref="InvalidOperationException">
-            /// <paramref name="lifetime"/> is already terminated. Note the inherent race: if
-            /// <paramref name="lifetime"/> terminates concurrently, just after the check, the call succeeds
-            /// and returns a definition that is already terminated instead of throwing. Either way a live
-            /// child of a dead parent is never produced.
-            /// </exception>
-            public static Definition Define(Lifetime lifetime, string id = null)
-            {
-                if (lifetime == null)
-                    throw new ArgumentNullException(nameof(lifetime),
-                        $"{nameof(lifetime)} can't be null on define new definition");
-                if (lifetime.IsTerminated)
-                    throw new InvalidOperationException(
-                        $"{nameof(lifetime)} can't be terminated on define new definition");
-
-                var definition = new Definition(id, lifetime.Id);
-                lifetime.AddDefinition(definition);
-                return definition;
-            }
-
-            /// <summary>
-            /// Creates a definition whose lifetime terminates as soon as <i>any</i> of
-            /// <paramref name="lifetimes"/> terminates — the intersection of all of them. If one of them is
-            /// already terminated, the returned definition is already terminated.
-            /// </summary>
-            /// <param name="lifetimes">
-            /// The lifetimes to intersect. An empty array yields the vacuous intersection: a definition that
-            /// nothing will terminate on its own, but that its owner can still terminate.
-            /// </param>
-            /// <returns>
-            /// The new definition. The caller owns it: until it is terminated it stays attached to every
-            /// lifetime in <paramref name="lifetimes"/> and to <see cref="OpenUGD.Lifetime.Eternal"/>.
-            /// </returns>
-            /// <exception cref="ArgumentNullException">
-            /// <paramref name="lifetimes"/>, or any element of it, is <c>null</c>.
-            /// </exception>
-            public static Definition Intersection(params Lifetime[] lifetimes)
-            {
-                if (lifetimes == null)
-                    throw new ArgumentNullException(nameof(lifetimes),
-                        $"{nameof(lifetimes)} can't be null on define an intersection");
-
-                // Validate everything before wiring anything up, so a bad argument cannot leave a
-                // half-built definition attached to some of the lifetimes (and to Eternal, forever).
-                foreach (var lifetime in lifetimes)
-                {
-                    if (lifetime == null)
-                        throw new ArgumentNullException(nameof(lifetimes),
-                            $"{nameof(lifetimes)} can't contain null on define an intersection");
-                }
-
-                var definition = Define(Eternal);
-                foreach (var lifetime in lifetimes)
-                {
-                    lifetime.AddDefinition(definition);
-                }
-
-                return definition;
-            }
         }
 
         private static int _instances;
@@ -211,8 +168,17 @@ namespace OpenUGD
         /// scopes that live as long as the process.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Anything registered directly on <see cref="Eternal"/> is kept alive forever and never runs, so
         /// register on a nested definition instead whenever the thing being registered can go away earlier.
+        /// </para>
+        /// <para>
+        /// <b>Process-wide.</b> <see cref="Eternal"/> is a static field, so it lives as long as the
+        /// application domain. In the Unity editor with domain reload disabled (Enter Play Mode Options) it
+        /// survives from one play session to the next, together with every scope still nested in it. Give
+        /// the application its own root definition, nested in <see cref="Eternal"/> and terminated when the
+        /// application or the play session ends, and nest everything else in that root.
+        /// </para>
         /// </remarks>
         public static readonly Lifetime Eternal = new Lifetime();
 
@@ -250,40 +216,87 @@ namespace OpenUGD
         /// <remarks>
         /// Already <c>true</c> while the termination actions are running, so an action always observes its
         /// own lifetime as dead. In concurrent code a <c>false</c> result may be stale by the time you act
-        /// on it; that is fine by design, because <see cref="AddAction"/> and <see cref="AddBracket"/> are
-        /// correct whichever way the race falls. Prefer calling them over testing this first.
+        /// on it; that is fine by design, because <see cref="AddAction"/>, <see cref="AddBracket"/> and
+        /// <see cref="DefineNested"/> are correct whichever way the race falls. Prefer calling them over
+        /// testing this first.
         /// </remarks>
         public bool IsTerminated => _isTerminated;
 
         /// <summary>
-        /// Creates a definition whose lifetime is nested in <paramref name="lifetime"/>.
-        /// Shorthand for <see cref="Definition.Define"/>.
+        /// Creates a scope nested in this lifetime: when this lifetime terminates, the new one terminates
+        /// too. This is the one way to create a child scope.
         /// </summary>
-        /// <param name="lifetime">The parent lifetime. Must not be <c>null</c> and must be alive.</param>
-        /// <param name="id">[used for debugging purposes] Optional name for the new definition.</param>
+        /// <remarks>
+        /// <para>
+        /// Terminating the returned definition first detaches it from this lifetime, so a long-lived parent
+        /// with many short-lived children does not accumulate dead entries. The child's termination is
+        /// registered in this lifetime's single LIFO sequence, interleaved with its actions: a child created
+        /// after an action is terminated before that action runs.
+        /// </para>
+        /// <para>
+        /// <b>If this lifetime is already terminated, the returned definition is already terminated</b>,
+        /// and whatever is then registered on it runs immediately, as for any terminated lifetime. A live
+        /// child of a dead parent is never produced. <i>Changed in 2.0.0</i> — this used to throw
+        /// <see cref="InvalidOperationException"/>, unlike every other operation on a terminated lifetime;
+        /// test <see cref="Definition.IsTerminated"/> on the result if you need to know.
+        /// </para>
+        /// </remarks>
+        /// <param name="name">
+        /// [used for debugging purposes] Optional name for the new definition; see <see cref="Definition.Name"/>.
+        /// </param>
         /// <returns>The new definition. The caller owns it and is responsible for terminating it.</returns>
-        /// <exception cref="ArgumentNullException"><paramref name="lifetime"/> is <c>null</c>.</exception>
-        /// <exception cref="InvalidOperationException"><paramref name="lifetime"/> is already terminated.</exception>
-        public static Definition Define(Lifetime lifetime, string id = null) => Definition.Define(lifetime, id);
+        public Definition DefineNested(string name = null)
+        {
+            var definition = new Definition(name, _id);
+            AddDefinition(definition);
+            return definition;
+        }
 
         /// <summary>
-        /// Creates a definition whose lifetime terminates as soon as <i>any</i> of
-        /// <paramref name="lifetimes"/> terminates. Shorthand for <see cref="Definition.Intersection"/>.
+        /// Creates a scope that terminates as soon as <i>any</i> of <paramref name="lifetimes"/> terminates
+        /// — the intersection of all of them. Use it for something that is valid only while several
+        /// independent scopes are all alive, which a parent-child tree cannot express.
         /// </summary>
-        /// <param name="lifetimes">The lifetimes to intersect.</param>
-        /// <returns>The new definition.</returns>
+        /// <remarks>
+        /// If one of <paramref name="lifetimes"/> is already terminated, the returned definition is already
+        /// terminated. Terminating the returned definition first detaches it from every one of
+        /// <paramref name="lifetimes"/>.
+        /// </remarks>
+        /// <param name="lifetimes">
+        /// The lifetimes to intersect. An empty array yields the vacuous intersection: a definition that
+        /// nothing will terminate on its own, but that its owner can still terminate. The same lifetime may
+        /// appear more than once.
+        /// </param>
+        /// <returns>
+        /// The new definition. The caller owns it: until it is terminated it stays attached to every
+        /// lifetime in <paramref name="lifetimes"/> and to <see cref="Eternal"/>.
+        /// </returns>
         /// <exception cref="ArgumentNullException">
         /// <paramref name="lifetimes"/>, or any element of it, is <c>null</c>.
         /// </exception>
-        public static Definition Intersection(params Lifetime[] lifetimes) => Definition.Intersection(lifetimes);
+        public static Definition Intersection(params Lifetime[] lifetimes)
+        {
+            if (lifetimes == null)
+                throw new ArgumentNullException(nameof(lifetimes),
+                    $"{nameof(lifetimes)} can't be null on define an intersection");
 
-        /// <summary>
-        /// Creates a definition whose lifetime is nested in this one.
-        /// </summary>
-        /// <param name="name">[used for debugging purposes] Optional name for the new definition.</param>
-        /// <returns>The new definition. The caller owns it and is responsible for terminating it.</returns>
-        /// <exception cref="InvalidOperationException">This lifetime is already terminated.</exception>
-        public Definition DefineNested(string name = null) => Define(this, name);
+            // Validate everything before wiring anything up, so a bad argument cannot leave a
+            // half-built definition attached to some of the lifetimes (and to Eternal, forever).
+            foreach (var lifetime in lifetimes)
+            {
+                if (lifetime == null)
+                    throw new ArgumentNullException(nameof(lifetimes),
+                        $"{nameof(lifetimes)} can't contain null on define an intersection");
+            }
+
+            var definition = Eternal.DefineNested();
+            foreach (var lifetime in lifetimes)
+            {
+                lifetime.AddDefinition(definition);
+            }
+
+            return definition;
+        }
 
         /// <summary>
         /// Registers an action to run when this lifetime terminates — or runs it right now, if this lifetime
@@ -403,7 +416,8 @@ namespace OpenUGD
 
         /// <summary>
         /// Wires <paramref name="definition"/> to terminate when this lifetime terminates, and to
-        /// unregister itself from this lifetime if it terminates first.
+        /// unregister itself from this lifetime if it terminates first. If this lifetime is already
+        /// terminated, terminates <paramref name="definition"/> now.
         /// </summary>
         private void AddDefinition(Definition definition)
         {

@@ -41,8 +41,8 @@ namespace OpenUGD.Samples.Intersection
             // 1. Valid only while BOTH are alive. Either one ending is enough to tear it down.
             // -------------------------------------------------------------------------------------------
             log("-- panel x session --");
-            var panel = Lifetime.Define(Lifetime.Eternal, "panel");
-            var session = Lifetime.Define(Lifetime.Eternal, "session");
+            var panel = Lifetime.Eternal.DefineNested("panel");
+            var session = Lifetime.Eternal.DefineNested("session");
 
             var binding = Lifetime.Intersection(panel.Lifetime, session.Lifetime);
             binding.Lifetime.AddBracket(
@@ -66,8 +66,8 @@ namespace OpenUGD.Samples.Intersection
             // 2. The owner can also end an intersection early, before any input ends.
             // -------------------------------------------------------------------------------------------
             log("-- the owner keeps the kill switch --");
-            var a = Lifetime.Define(Lifetime.Eternal, "a");
-            var b = Lifetime.Define(Lifetime.Eternal, "b");
+            var a = Lifetime.Eternal.DefineNested("a");
+            var b = Lifetime.Eternal.DefineNested("b");
 
             var owned = Lifetime.Intersection(a.Lifetime, b.Lifetime);
             owned.Lifetime.AddAction(() => log("  owned: torn down"));
@@ -84,8 +84,8 @@ namespace OpenUGD.Samples.Intersection
             // 3. Intersecting with something already dead yields something already dead.
             // -------------------------------------------------------------------------------------------
             log("-- one dead input is enough --");
-            var alive = Lifetime.Define(Lifetime.Eternal, "alive");
-            var deadAlready = Lifetime.Define(Lifetime.Eternal, "dead");
+            var alive = Lifetime.Eternal.DefineNested("alive");
+            var deadAlready = Lifetime.Eternal.DefineNested("dead");
             deadAlready.Terminate();
 
             var stillborn = Lifetime.Intersection(alive.Lifetime, deadAlready.Lifetime);
@@ -106,9 +106,9 @@ namespace OpenUGD.Samples.Intersection
             // 4. More than two inputs, and the vacuous case.
             // -------------------------------------------------------------------------------------------
             log("-- n-ary and vacuous --");
-            var x = Lifetime.Define(Lifetime.Eternal, "x");
-            var y = Lifetime.Define(Lifetime.Eternal, "y");
-            var z = Lifetime.Define(Lifetime.Eternal, "z");
+            var x = Lifetime.Eternal.DefineNested("x");
+            var y = Lifetime.Eternal.DefineNested("y");
+            var z = Lifetime.Eternal.DefineNested("z");
 
             using (var all = Lifetime.Intersection(x.Lifetime, y.Lifetime, z.Lifetime))
             {

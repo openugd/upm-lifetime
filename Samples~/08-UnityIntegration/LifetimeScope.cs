@@ -53,7 +53,7 @@ namespace OpenUGD.Samples.UnityIntegration
         private void EnsureDefined()
         {
             // Lazy, because another component's Awake may reach for this scope before ours has run.
-            // Define is cheap and Awake's call then finds it already there.
+            // DefineNested is cheap, and Awake's call then finds it already there.
             //
             // The type is spelled out because this class has a property of the same name; inside a method
             // of this type, `OpenUGD.Lifetime` is the unambiguous way to name the type.

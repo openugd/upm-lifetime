@@ -8,9 +8,10 @@ namespace OpenUGD.Samples.Brackets
     /// </summary>
     /// <remarks>
     /// <para>
-    /// It returns the disposable, so it chains onto the construction expression and the ownership decision
-    /// sits on the same line as the allocation. That is the point: you cannot construct the thing and
-    /// forget to say who owns it, because saying so is part of the same statement.
+    /// It returns the disposable, typed as whatever you passed in, so it chains onto the construction
+    /// expression and the ownership decision sits on the same line as the allocation. That is the point:
+    /// you cannot construct the thing and forget to say who owns it, because saying so is part of the same
+    /// statement.
     /// </para>
     /// <para>
     /// <b>Dispose is called exactly once per call.</b> Registering one instance on two lifetimes disposes
@@ -23,8 +24,9 @@ namespace OpenUGD.Samples.Brackets
     /// the object was never disposed at all.)</i>
     /// </para>
     /// <para>
-    /// Note the declared return type is <see cref="IDisposable"/>, not the concrete type, so keep the
-    /// typed variable and chain <c>With</c> as a separate statement when you need the concrete type.
+    /// Do not call <c>With</c> on a <see cref="Lifetime.Definition"/> to tie one scope to another: it
+    /// compiles, but it neither nests the definition nor detaches when it ends first. Create the scope with
+    /// <c>other.DefineNested()</c> or <c>Lifetime.Intersection(...)</c> instead.
     /// </para>
     /// </remarks>
     public static class DisposableSample
@@ -34,20 +36,19 @@ namespace OpenUGD.Samples.Brackets
             if (log == null) throw new ArgumentNullException(nameof(log));
 
             log("-- ownership stated on the line of construction --");
-            using (var scope = Lifetime.Define(Lifetime.Eternal, "with"))
+            using (var scope = Lifetime.Eternal.DefineNested("with"))
             {
-                // The chained form, when you do not need the concrete type back.
+                // Fire and forget: nobody needs the handle back, only its disposal.
                 new Handle("connection", log).With(scope.Lifetime);
 
-                // The typed form: keep your variable, then say who owns it.
-                var buffer = new Handle("buffer", log);
-                buffer.With(scope.Lifetime);
+                // Construct, own and use: With returns the Handle it was given, not an IDisposable.
+                var buffer = new Handle("buffer", log).With(scope.Lifetime);
                 buffer.Use();
             }
             // Both handles were disposed here, LIFO: buffer first, then connection.
 
             log("-- a disposable handed to a dead scope is disposed immediately --");
-            var dead = Lifetime.Define(Lifetime.Eternal, "dead");
+            var dead = Lifetime.Eternal.DefineNested("dead");
             dead.Terminate();
 
             new Handle("late-arrival", log).With(dead.Lifetime);

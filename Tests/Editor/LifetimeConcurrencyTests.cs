@@ -164,10 +164,13 @@ namespace OpenUGD.Tests
         }
 
         [Test]
-        public void ConcurrentDefineAndTerminateOnTheSameParent_DoesNotDeadlockOrThrow()
+        public void ConcurrentDefineAndTerminateOnTheSameParent_NeverThrowsAndNeverLeavesALiveChild()
         {
             // R3: do not call into another Lifetime while holding this one's lock.
+            // LS-8: defining on a dying parent never throws. Whichever way the race falls, every child ends up
+            // terminated - by the parent's cascade, or at birth - and its action runs exactly once.
             const int rounds = 100;
+            const int perRound = 20;
 
             RunWithTimeout(() =>
             {
@@ -175,6 +178,8 @@ namespace OpenUGD.Tests
                 {
                     var parent = _root.Lifetime.DefineNested("parent-" + round);
                     var errors = new ConcurrentQueue<Exception>();
+                    var children = new Lifetime.Definition[perRound];
+                    var runs = 0;
 
                     using (var barrier = new Barrier(2))
                     {
@@ -183,18 +188,11 @@ namespace OpenUGD.Tests
                             barrier.SignalAndWait();
                             try
                             {
-                                for (var i = 0; i < 20; i++)
+                                for (var i = 0; i < perRound; i++)
                                 {
-                                    // Defining on a dying parent is a legal race: either it throws
-                                    // InvalidOperationException, or it hands back an already terminated
-                                    // definition. Nothing else is acceptable.
-                                    var child = parent.Lifetime.DefineNested();
-                                    child.Lifetime.AddAction(() => { });
+                                    children[i] = parent.Lifetime.DefineNested();
+                                    children[i].Lifetime.AddAction(() => Interlocked.Increment(ref runs));
                                 }
-                            }
-                            catch (InvalidOperationException)
-                            {
-                                // expected race outcome
                             }
                             catch (Exception exception)
                             {
@@ -213,8 +211,12 @@ namespace OpenUGD.Tests
 
                     CollectionAssert.IsEmpty(errors);
                     Assert.IsTrue(parent.IsTerminated);
+                    Assert.IsTrue(children.All(child => child.IsTerminated),
+                        $"round {round}: no child may outlive its terminated parent.");
+                    Assert.AreEqual(perRound, Volatile.Read(ref runs),
+                        $"round {round}: every child's action must run exactly once.");
                 }
-            }, 30000, "R3: concurrent Define and Terminate deadlocked.");
+            }, 30000, "R3: concurrent DefineNested and Terminate deadlocked.");
         }
 
         // ------------------------------------------------------------------------------------------

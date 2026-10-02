@@ -15,16 +15,17 @@ namespace OpenUGD.Samples.BoundedOperation
     /// looked inside.
     /// </para>
     /// <para>
-    /// <b>Dispose is a plain public method</b>, not an explicit interface implementation, so <c>using</c> on
-    /// a Definition local does not box.
-    /// </para>
-    /// <para>
     /// <b>The implicit conversion.</b> <c>Definition</c> converts implicitly to <c>Lifetime</c> (it is
     /// null-safe: a null Definition converts to a null Lifetime). So a method that takes a
     /// <see cref="Lifetime"/> can be handed the <c>scope</c> variable directly — no <c>.Lifetime</c> at the
     /// call site. That is not just sugar: the conversion is one-way, so passing <c>scope</c> to a helper
     /// <b>downgrades</b> it from "can terminate" to "can only observe and register". The capability split
     /// of sample 01 is enforced automatically at every call boundary.
+    /// </para>
+    /// <para>
+    /// The conversion applies to arguments, assignments and return values only. C# never applies a
+    /// user-defined conversion to the receiver of a member or extension-method call, so registering on the
+    /// scope itself still reads <c>scope.Lifetime.AddAction(...)</c>, as below.
     /// </para>
     /// <para>
     /// Caveat worth knowing: because <c>Dispose()</c> is <c>Terminate()</c>, a throwing clean-up surfaces as
@@ -37,7 +38,7 @@ namespace OpenUGD.Samples.BoundedOperation
         {
             if (log == null) throw new ArgumentNullException(nameof(log));
 
-            var app = Lifetime.Define(Lifetime.Eternal, "app");
+            var app = Lifetime.Eternal.DefineNested("app");
             try
             {
                 LoadLevel(app.Lifetime, "forest", log);

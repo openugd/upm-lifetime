@@ -43,7 +43,7 @@ namespace OpenUGD.Samples.Cancellation
             // 1. Ending the scope cancels the work.
             // -------------------------------------------------------------------------------------------
             log("-- scope termination cancels in-flight work --");
-            var request = Lifetime.Define(Lifetime.Eternal, "request");
+            var request = Lifetime.Eternal.DefineNested("request");
 
             // One call, one token, kept for the duration of the scope.
             CancellationToken token = request.Lifetime.AsCancellationToken();
@@ -60,7 +60,7 @@ namespace OpenUGD.Samples.Cancellation
             // 2. Work that finishes before the scope ends. Closing the scope afterwards is harmless.
             // -------------------------------------------------------------------------------------------
             log("-- work that completes normally --");
-            using (var quick = Lifetime.Define(Lifetime.Eternal, "quick"))
+            using (var quick = Lifetime.Eternal.DefineNested("quick"))
             {
                 await DownloadAsync(quick.Lifetime.AsCancellationToken(), log, TimeSpan.FromMilliseconds(10));
             }
@@ -70,7 +70,7 @@ namespace OpenUGD.Samples.Cancellation
             //    This is the 2.0.0 fix that matters most here: awaiting it fails fast instead of hanging.
             // -------------------------------------------------------------------------------------------
             log("-- a token from a dead scope is born cancelled --");
-            var dead = Lifetime.Define(Lifetime.Eternal, "dead");
+            var dead = Lifetime.Eternal.DefineNested("dead");
             dead.Terminate();
 
             CancellationToken deadToken = dead.Lifetime.AsCancellationToken();
@@ -82,7 +82,7 @@ namespace OpenUGD.Samples.Cancellation
             // 4. Scope the token itself when the operation is shorter than the owner.
             // -------------------------------------------------------------------------------------------
             log("-- per-operation tokens: nest, do not accumulate --");
-            var screen = Lifetime.Define(Lifetime.Eternal, "screen");
+            var screen = Lifetime.Eternal.DefineNested("screen");
             for (var i = 0; i < 3; i++)
             {
                 // A nested definition per iteration. Terminating it drops both the token source and the

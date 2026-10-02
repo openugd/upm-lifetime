@@ -69,12 +69,12 @@ namespace OpenUGD.Tests
         }
 
         /// <summary>A fresh, live definition owned by this test.</summary>
-        private Lifetime.Definition NewDefinition(string id = null) => _root.Lifetime.DefineNested(id);
+        private Lifetime.Definition NewDefinition(string name = null) => _root.Lifetime.DefineNested(name);
 
         /// <summary>A fresh, already terminated definition owned by this test.</summary>
-        private Lifetime.Definition NewTerminatedDefinition(string id = null)
+        private Lifetime.Definition NewTerminatedDefinition(string name = null)
         {
-            var definition = _root.Lifetime.DefineNested(id);
+            var definition = _root.Lifetime.DefineNested(name);
             definition.Terminate();
             return definition;
         }
@@ -117,7 +117,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // Eternal, Id / ParentId (R12: debugging aids, but part of the public API)
+        // Eternal, Name / ParentId / Id (R12: debugging aids, but part of the public API)
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -152,13 +152,13 @@ namespace OpenUGD.Tests
         }
 
         [Test]
-        public void DefinitionId_IsTheSuppliedDebugIdAndIsNullWhenOmitted()
+        public void DefinitionName_IsTheSuppliedNameAndIsNullWhenOmitted()
         {
-            var named = NewDefinition("my-debug-id");
+            var named = NewDefinition("my-debug-name");
             var unnamed = NewDefinition();
 
-            Assert.AreEqual("my-debug-id", named.Id);
-            Assert.IsNull(unnamed.Id, "An omitted debug id must stay null rather than being invented.");
+            Assert.AreEqual("my-debug-name", named.Name);
+            Assert.IsNull(unnamed.Name, "An omitted name must stay null rather than being invented.");
         }
 
         [Test]
@@ -186,62 +186,83 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // Define / DefineNested
+        // DefineNested
         // ------------------------------------------------------------------------------------------
 
         [Test]
-        public void Define_WithNullLifetime_ThrowsArgumentNullException()
+        public void DefineNested_OnATerminatedLifetime_ReturnsABornTerminatedDefinition()
         {
-            Assert.Throws<ArgumentNullException>(() => Lifetime.Define(null));
-            Assert.Throws<ArgumentNullException>(() => Lifetime.Definition.Define(null));
-        }
-
-        [Test]
-        public void Define_OnTerminatedLifetime_ThrowsInvalidOperationException()
-        {
+            // LS-8: the same dead-scope rule as AddAction, With and AsCancellationToken - no throw, and
+            // never a live child of a dead parent. REPLACES Define_OnTerminatedLifetime_Throws, which pinned
+            // the 1.x InvalidOperationException.
             var dead = NewTerminatedDefinition("dead-parent");
 
-            Assert.Throws<InvalidOperationException>(() => Lifetime.Define(dead.Lifetime, "child"));
-            Assert.Throws<InvalidOperationException>(() => dead.Lifetime.DefineNested("child"));
+            Lifetime.Definition child = null;
+            Assert.DoesNotThrow(() => child = dead.Lifetime.DefineNested("child"));
+
+            Assert.IsTrue(child.IsTerminated, "A child of a dead parent is born terminated.");
+            Assert.AreEqual("child", child.Name);
+            Assert.AreEqual(dead.Lifetime.Id, child.ParentId);
+
+            var calls = 0;
+            child.Lifetime.AddAction(() => calls++);
+            Assert.AreEqual(1, calls, "R1: registering on the born-terminated child runs immediately.");
+            Assert.IsTrue(child.Lifetime.AsCancellationToken().IsCancellationRequested);
+            Assert.DoesNotThrow(() => child.Terminate(), "Terminating it again is an idempotent no-op.");
         }
 
         [Test]
-        public void DefineNested_FromInsideATerminationAction_ThrowsRatherThanYieldingALiveChildOfADeadParent()
+        public void DefineNested_OnALifetimeTerminatedByItsParent_ReturnsABornTerminatedDefinition()
         {
+            var parent = NewDefinition("parent");
+            var child = parent.Lifetime.DefineNested("child");
+            parent.Terminate();
+
+            var grandChild = child.Lifetime.DefineNested("grand-child");
+
+            Assert.IsTrue(grandChild.IsTerminated);
+        }
+
+        [Test]
+        public void DefineNested_FromInsideATerminationAction_ReturnsABornTerminatedChild()
+        {
+            // IsTerminated is already true while actions run, so DefineNested takes its terminated path: a
+            // live child of a dying parent is never produced.
             var parent = NewDefinition("define-during-termination");
-            Exception caught = null;
+            Lifetime.Definition lateChild = null;
+            var lateChildRuns = 0;
 
             parent.Lifetime.AddAction(() =>
             {
-                try
-                {
-                    parent.Lifetime.DefineNested("late-child");
-                }
-                catch (Exception exception)
-                {
-                    caught = exception;
-                }
+                lateChild = parent.Lifetime.DefineNested("late-child");
+                lateChild.Lifetime.AddAction(() => lateChildRuns++);
             });
 
             parent.Terminate();
 
-            // IsTerminated is already true while actions run, so Define takes its normal terminated path.
-            Assert.IsInstanceOf<InvalidOperationException>(caught);
+            Assert.IsNotNull(lateChild);
+            Assert.IsTrue(lateChild.IsTerminated);
+            Assert.AreEqual(1, lateChildRuns);
         }
 
         [Test]
-        public void Define_AndDefineNested_ProduceEquivalentChildDefinitions()
+        public void DefineNested_ChildTerminationTakesItsPlaceInTheParentsLifoSequence()
         {
-            var parent = NewDefinition("parent");
+            // A child is one entry in the parent's single LIFO sequence, interleaved with plain actions: a
+            // child created after an action is terminated before that action runs.
+            var parent = NewDefinition("interleaved");
+            var log = new List<string>();
 
-            var viaStatic = Lifetime.Define(parent.Lifetime, "static");
-            var viaInstance = parent.Lifetime.DefineNested("instance");
+            parent.Lifetime.AddAction(() => log.Add("action-1"));
+            var first = parent.Lifetime.DefineNested("child-1");
+            first.Lifetime.AddAction(() => log.Add("child-1"));
+            parent.Lifetime.AddAction(() => log.Add("action-2"));
+            var second = parent.Lifetime.DefineNested("child-2");
+            second.Lifetime.AddAction(() => log.Add("child-2"));
 
-            Assert.IsFalse(viaStatic.IsTerminated);
-            Assert.IsFalse(viaInstance.IsTerminated);
-            Assert.AreEqual(parent.Lifetime.Id, viaStatic.ParentId);
-            Assert.AreEqual(parent.Lifetime.Id, viaInstance.ParentId);
-            Assert.AreNotSame(viaStatic.Lifetime, viaInstance.Lifetime);
+            parent.Terminate();
+
+            CollectionAssert.AreEqual(new[] { "child-2", "action-2", "child-1", "action-1" }, log);
         }
 
         // ------------------------------------------------------------------------------------------
@@ -510,13 +531,16 @@ namespace OpenUGD.Tests
             Assert.IsNull(converted, "R8: the conversion must be null-safe.");
         }
 
+        /// <summary>Stands in for any API that takes a <see cref="Lifetime"/> parameter.</summary>
+        private static Lifetime.Definition DefineChildOf(Lifetime parent, string name) => parent.DefineNested(name);
+
         [Test]
         public void ImplicitConversion_LetsADefinitionBePassedWhereALifetimeIsExpected()
         {
             var definition = NewDefinition("implicit-arg");
             var calls = 0;
 
-            var child = Lifetime.Define(definition, "child-of-definition");
+            var child = DefineChildOf(definition, "child-of-definition");
             child.Lifetime.AddAction(() => calls++);
             var disposable = new CountingDisposable();
             disposable.With(definition);
@@ -1236,6 +1260,27 @@ namespace OpenUGD.Tests
             definition.Dispose();
 
             Assert.AreEqual(1, disposable.DisposeCount);
+        }
+
+        [Test]
+        public void With_ReturnsTheStaticTypeItWasGiven()
+        {
+            // LS-6: With<T> returns T, so construction, ownership and use fit in one declaration. The
+            // declarations below are the assertion - they do not compile against the 1.x signature, which
+            // returned IDisposable.
+            var definition = NewDefinition("with-typed");
+
+            CountingDisposable counting = new CountingDisposable().With(definition.Lifetime);
+            IDisposable asInterface = new CountingDisposable();
+            IDisposable returned = asInterface.With(definition.Lifetime);
+
+            Assert.AreSame(asInterface, returned);
+            Assert.AreEqual(0, counting.DisposeCount);
+
+            definition.Terminate();
+
+            Assert.AreEqual(1, counting.DisposeCount);
+            Assert.AreEqual(1, ((CountingDisposable)asInterface).DisposeCount);
         }
 
         [Test]

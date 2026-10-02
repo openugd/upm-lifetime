@@ -32,7 +32,7 @@ namespace OpenUGD.Samples.NestedScopes
             if (log == null) throw new ArgumentNullException(nameof(log));
 
             log("-- LIFO --");
-            using (var scope = Lifetime.Define(Lifetime.Eternal, "lifo"))
+            using (var scope = Lifetime.Eternal.DefineNested("lifo"))
             {
                 scope.Lifetime.AddAction(() => log("  released 1 (registered first, runs last)"));
                 scope.Lifetime.AddAction(() => log("  released 2"));
@@ -40,7 +40,7 @@ namespace OpenUGD.Samples.NestedScopes
             }
 
             log("-- one throwing action does not abort the rest --");
-            var definition = Lifetime.Define(Lifetime.Eternal, "failing");
+            var definition = Lifetime.Eternal.DefineNested("failing");
             definition.Lifetime.AddAction(() => log("  clean-up A ran"));
             definition.Lifetime.AddAction(() => throw new InvalidOperationException("teardown B failed"));
             definition.Lifetime.AddAction(() => log("  clean-up C ran"));

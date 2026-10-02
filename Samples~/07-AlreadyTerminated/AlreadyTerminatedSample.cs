@@ -43,7 +43,7 @@ namespace OpenUGD.Samples.AlreadyTerminated
         {
             if (log == null) throw new ArgumentNullException(nameof(log));
 
-            var dead = Lifetime.Define(Lifetime.Eternal, "dead");
+            var dead = Lifetime.Eternal.DefineNested("dead");
             dead.Terminate();
             Lifetime lifetime = dead.Lifetime;
 
@@ -98,7 +98,7 @@ namespace OpenUGD.Samples.AlreadyTerminated
         /// </summary>
         private static void RaceWithTermination(Action<string> log)
         {
-            var definition = Lifetime.Define(Lifetime.Eternal, "racy");
+            var definition = Lifetime.Eternal.DefineNested("racy");
             Lifetime lifetime = definition.Lifetime;
 
             // Step 1: a consumer starts building. It captures the lifetime; it does not yet register.

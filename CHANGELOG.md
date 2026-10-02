@@ -10,14 +10,28 @@ All packages are reset to a synchronized major version. This release contains be
 read Changed and Removed before upgrading.
 
 ### Added
-- `implicit operator Lifetime(Lifetime.Definition)`, so scope code can pass a definition anywhere a
-  lifetime is expected without writing `.Lifetime`. Null-safe: a null definition converts to a null
-  lifetime. Additive, but it can change overload resolution at a call site that has both a
-  `Definition` overload and a `Lifetime` overload.
+- `implicit operator Lifetime(Lifetime.Definition)`, so a definition can be passed as an argument, assigned
+  or returned where a lifetime is expected without writing `.Lifetime`. Null-safe: a null definition
+  converts to a null lifetime. C# never applies it to the receiver of a member or extension-method call,
+  so `scope.Lifetime.AddAction(...)` still needs `.Lifetime`. Additive, but it can change overload
+  resolution at a call site that has both a `Definition` overload and a `Lifetime` overload.
 - Full XML documentation on every public member, including explicit warnings at each call site whose
   behaviour changed.
 
 ### Changed
+- **`DefineNested` on an already-terminated lifetime returns a definition that is already terminated**
+  instead of throwing `InvalidOperationException`, the same rule as `AddAction`, `With` and
+  `AsCancellationToken` on a dead scope; anything registered on the returned definition runs immediately.
+  A live child of a dead parent is still never produced. Migration: delete the `try`/`catch`; test
+  `IsTerminated` on the result if you need to know.
+- **`With` is generic: `T With<T>(this T disposable, Lifetime lifetime) where T : IDisposable`**, and
+  returns the static type it was given instead of `IDisposable`, so `var stream =
+  File.OpenRead(path).With(lifetime);` is a `FileStream`. Migration: delete casts such as
+  `(MyType)x.With(lifetime)`; `IDisposable d = x.With(lifetime);` still compiles. Binary-breaking —
+  recompile.
+- **`Lifetime.Definition.Id` is renamed `Name`.** It is the optional debugging name (a `string`) and no
+  longer shares a member name with `Lifetime.Id` (an `int`). Every parameter that takes it is called
+  `name`. Migration: `definition.Id` → `definition.Name`.
 - **`AddAction` on an already-terminated lifetime now invokes the action immediately** instead of
   silently dropping it. Affects you if you ever register clean-up on a lifetime that may already have
   ended — that clean-up now actually runs, on the calling thread, before `AddAction` returns, and an
@@ -73,7 +87,7 @@ read Changed and Removed before upgrading.
   holder, the file is named `LICENSE.md`, and `package.json` declares `"license": "Apache-2.0"`.
   Apache-2.0 adds an express patent grant and requires that changes to the files be stated; releases made
   before this version remain under their original terms.
-- Minimum supported Unity version raised to 2022.3 (`unityRelease` `0f1`). The previously declared
+- Minimum supported Unity version raised to 6000.0 (`unityRelease` `0f1`). The previously declared
   minimums were never verified against a build.
 - Package manifest updated to the current Unity package schema: object `author`, a real `description`,
   `licensesUrl`/`documentationUrl`/`changelogUrl` and a `repository` object; the obsolete `category`
@@ -84,9 +98,16 @@ read Changed and Removed before upgrading.
 - The package now ships its own test assembly (`Tests/Editor`, 85 tests, gated on `UNITY_INCLUDE_TESTS`).
 
 ### Removed
-- **The explicit `void IDisposable.Dispose()` on `Definition`.** The public `Dispose()` already
-  satisfies the interface, and keeping it public means `using` does not box. Source-compatible;
-  **binary-breaking** for precompiled assemblies bound to the explicit interface slot — recompile.
+- **`Lifetime.Define(Lifetime, string)`, `Lifetime.Definition.Define(Lifetime, string)` and
+  `Lifetime.Definition.Intersection(params Lifetime[])`.** There is now one way to create each kind of
+  scope: `lifetime.DefineNested(name)` for a child and `Lifetime.Intersection(...)` for an intersection.
+  Migration: `Lifetime.Define(parent, name)` → `parent.DefineNested(name)` (for a definition,
+  `definition.Lifetime.DefineNested(name)`); `Lifetime.Definition.Intersection(...)` →
+  `Lifetime.Intersection(...)`. A null parent now fails with `NullReferenceException` at the call site
+  instead of `ArgumentNullException`.
+- **The explicit `void IDisposable.Dispose()` on `Definition`.** It did the same as the public
+  `Dispose()`, which already implements the interface. Source- and binary-compatible: a call through
+  `IDisposable` now dispatches to the public method.
 - **The static `Stack<List<Action>>` pool.** It was popped under `lock(_pool)` in the constructor and
   pushed under the instance lock in `Terminate` — unsynchronized mutation of a shared `Stack` that
   could hand the same `List<Action>` to two live lifetimes. Each lifetime now allocates its own list,
@@ -100,8 +121,8 @@ read Changed and Removed before upgrading.
 - Termination actions run in **reverse registration order (LIFO)** — now a documented guarantee.
 - There is still **no `RemoveAction`**. To unregister, create a nested definition, register on it, and
   terminate it; that also detaches it from its parent.
-- `Define` on a terminated lifetime still throws `InvalidOperationException`, with the same message.
-- `Id` / `ParentId` remain debugging aids with no semantics.
+- `Lifetime.Id`, `Definition.ParentId` and the renamed `Definition.Name` remain debugging aids with no
+  semantics.
 
 ## [1.2.0]
 ### Changed

@@ -24,8 +24,9 @@ namespace OpenUGD.Samples.NestedScopes
     /// destroyed — exactly like a stack.
     /// </para>
     /// <para>
-    /// Also note <c>DefineNested</c> on an already-terminated lifetime <b>throws</b>
-    /// <see cref="InvalidOperationException"/>. It never hands back a live child of a dead parent.
+    /// Also note <c>DefineNested</c> on an already-terminated lifetime returns a definition that is
+    /// <b>born terminated</b> — the same rule as registering on a dead scope (sample 07). It never hands back
+    /// a live child of a dead parent, and it does not throw either.
     /// </para>
     /// </remarks>
     public static class NestedScopesSample
@@ -36,7 +37,7 @@ namespace OpenUGD.Samples.NestedScopes
 
             // The root of this sample's tree. Lifetime.Eternal never terminates, so it is the natural
             // parent for anything that lives as long as the process.
-            var app = Lifetime.Define(Lifetime.Eternal, "app");
+            var app = Lifetime.Eternal.DefineNested("app");
             app.Lifetime.AddAction(() => log("app: closed"));
 
             // A child of the app. It dies when the app dies — nothing had to be written to make that so.
@@ -75,17 +76,13 @@ namespace OpenUGD.Samples.NestedScopes
             log("request-B terminated: " + requestB.IsTerminated);  // True — cascaded, two levels down
 
             // ---------------------------------------------------------------------------------------
-            // 3. You cannot nest under something that has already ended.
+            // 3. Nesting under something that has already ended yields something already ended.
             // ---------------------------------------------------------------------------------------
-            try
-            {
-                app.Lifetime.DefineNested("too-late");
-            }
-            catch (InvalidOperationException)
-            {
-                log("DefineNested on a terminated lifetime threw, as designed: " +
-                    "a live child of a dead parent is never produced.");
-            }
+            var tooLate = app.Lifetime.DefineNested("too-late");
+            log("child of a terminated lifetime born terminated: " + tooLate.IsTerminated); // True
+
+            // ...so, as on any terminated lifetime, clean-up registered on it runs immediately.
+            tooLate.Lifetime.AddAction(() => log("too-late: clean-up ran immediately"));
         }
     }
 }

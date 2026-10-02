@@ -23,14 +23,25 @@ One call, one line, reviewed together — the acquire and the release cannot dri
 
 ## `With` — the common case
 
-`disposable.With(lifetime)` ties an `IDisposable` to a scope and returns it, so ownership is stated on the
-same line as construction. `Dispose` is called exactly once per `With` call — register an instance on two
-lifetimes and it is disposed twice. On a dead lifetime the object **is** disposed immediately (it already
-exists; dropping the registration would leak it).
+`disposable.With(lifetime)` ties an `IDisposable` to a scope and returns it with its own static type, so
+ownership is stated on the same line as construction:
+
+```csharp
+var buffer = new Buffer().With(lifetime); // a Buffer, not an IDisposable
+```
+
+`Dispose` is called exactly once per `With` call — register an instance on two lifetimes and it is disposed
+twice. On a dead lifetime the object **is** disposed immediately (it already exists; dropping the
+registration would leak it).
+
+Do not use `With` to tie a `Lifetime.Definition` to another lifetime. It compiles, because a definition is
+an `IDisposable`, but the definition is not nested and does not detach when it ends first — it stays
+referenced by the other lifetime until that one ends. Use `other.DefineNested()`, or
+`Lifetime.Intersection(...)` when it must end with either of two lifetimes.
 
 ## What to look at
 
 - `BracketSample.cs` — ordering, chaining, the dead-scope case, and the throwing-`onOpen` case.
-- `DisposableSample.cs` — `With`, both chained and typed, and immediate disposal on a dead scope.
+- `DisposableSample.cs` — `With` returning the concrete type, and immediate disposal on a dead scope.
 
 This sample is plain C# — the package references neither `UnityEngine` nor `UnityEditor`.
