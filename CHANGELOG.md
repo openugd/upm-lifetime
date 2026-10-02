@@ -10,8 +10,6 @@ All packages are reset to a synchronized major version. This release contains be
 read Changed and Removed before upgrading.
 
 ### Added
-- `DisposableHandler` — collects `IDisposable`s and disposes them when a `Lifetime` ends, moved here from
-  `com.openugd.corelib`. Pure lifetime plumbing with no Unity dependency, so it belongs beside `Lifetime`.
 - `implicit operator Lifetime(Lifetime.Definition)`, so scope code can pass a definition anywhere a
   lifetime is expected without writing `.Lifetime`. Null-safe: a null definition converts to a null
   lifetime. Additive, but it can change overload resolution at a call site that has both a
