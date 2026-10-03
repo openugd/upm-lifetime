@@ -135,6 +135,14 @@ read Changed and Removed before upgrading.
   intersection also took a slot, and the lock, of the one process-wide `Eternal`. Termination, the
   born-terminated rule and detaching are unchanged. `Definition.ParentId` of an intersection is now `0`
   (no lifetime has that id) instead of the id of `Eternal`.
+- **Sample 08 (Unity Integration) no longer teaches two false things or leaks.** It claimed that the code
+  after `await Task.Delay` resumes on a thread-pool thread; started on Unity's main thread it resumes there,
+  through `UnitySynchronizationContext`. It claimed that `LifetimeScope`s nest with their GameObjects; they
+  are siblings in `Lifetime.Eternal`, which the sample now says, with how to nest for real and what that
+  costs on re-parenting. And its lazy `Lifetime` getter created a scope on `Eternal` for an object that was
+  never activated, which Unity never sends `OnDestroy`: the scope is now created during activation, reading
+  it on an object that has never been active throws, and the README documents that caveat and the
+  domain-reload one. The sample has an EditMode test for the guard (`Tests/`).
 
 ### Unchanged (explicitly)
 - `Lifetime.Terminate()` remains private: only the holder of a `Definition` can end a lifetime.

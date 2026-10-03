@@ -24,6 +24,19 @@ namespace OpenUGD.Samples.UnityIntegration
     /// so a failure inside it vanishes without a log line. Keep the task and observe it — as below.
     /// </description></item>
     /// </list>
+    /// <para>
+    /// <b>Which thread resumes.</b> <c>Start</c> runs on the main thread, where Unity installs its
+    /// <c>UnitySynchronizationContext</c>. An <c>await</c> captures it, so the code after
+    /// <c>await Task.Delay(...)</c> is posted back to the main thread and runs there on a later frame:
+    /// touching Unity objects after the <c>await</c> is fine. That stops being true after
+    /// <c>ConfigureAwait(false)</c>, or in code started on another thread (<c>Task.Run</c>), which resumes on
+    /// a thread-pool thread.
+    /// </para>
+    /// <para>
+    /// Resuming on the main thread does not mean resuming only while the object exists: without the token
+    /// the continuation is queued, and runs, after <c>OnDestroy</c> all the same. Cancelling it is what
+    /// the token is for.
+    /// </para>
     /// </remarks>
     [RequireComponent(typeof(LifetimeScope))]
     public class ScopedAsyncWork : MonoBehaviour
@@ -57,9 +70,8 @@ namespace OpenUGD.Samples.UnityIntegration
                     // scope, which cancels the token.
                     await Task.Delay(TimeSpan.FromSeconds(1), token);
 
-                    // Reached only while the scope is alive. Note that Task.Delay resumes on a thread
-                    // pool thread, so touching UnityEngine objects here still needs the usual care —
-                    // the lifetime solves ownership, not thread affinity.
+                    // Reached only while the scope is alive, and on the main thread: the await captured
+                    // Unity's SynchronizationContext, so this continuation was posted back to it.
                     Debug.Log("tick");
                 }
             }

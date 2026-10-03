@@ -1,0 +1,25 @@
+{
+    "name": "com.openugd.lifetime.samples.unity.tests",
+    "rootNamespace": "OpenUGD.Samples.UnityIntegration.Tests",
+    "references": [
+        "com.openugd.lifetime.samples.unity",
+        "com.openugd.lifetime",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
