@@ -76,9 +76,10 @@ namespace OpenUGD.Samples.UnityIntegration
 
         private Lifetime.Definition Define()
         {
-            // Active in the hierarchy means this component's Awake has run or runs later in this same
-            // activation, so OnDestroy will end what is created here. `this == null` is Unity's test for
-            // a destroyed object (one destroyed before it was ever active).
+            // In Play Mode, active in the hierarchy means this component's Awake has run or runs later in
+            // this same activation, so OnDestroy will end what is created here. (Edit Mode runs neither Awake
+            // nor OnDestroy on this component, so a scope read there, from editor code, is never ended.)
+            // `this == null` is Unity's test for a destroyed object (one destroyed before it was ever active).
             if (this == null || !gameObject.activeInHierarchy)
                 throw new InvalidOperationException(
                     $"{nameof(LifetimeScope)}.{nameof(Lifetime)} was read on a GameObject that has never been " +

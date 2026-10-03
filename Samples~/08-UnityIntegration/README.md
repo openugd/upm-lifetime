@@ -64,7 +64,8 @@ as resuming only while the object exists — that is what the token is for.
   would never be terminated, and would stay nested in `Lifetime.Eternal` for the rest of the process with
   everything registered on it. That is why `LifetimeScope` creates its scope during activation and throws
   when `Lifetime` is read on an object that has never been active. Activate the object first, or read the
-  scope from `Start` or later.
+  scope from `Start` or later. Edit Mode is the same story: Unity calls neither `Awake` nor `OnDestroy` on
+  these components there, so do not read `Lifetime` from editor code.
 - **Domain reload turned off.** `Lifetime.Eternal` is a static field. With *Enter Play Mode Options* set to
   skip the domain reload, it survives from one play session to the next, together with every scope still
   nested in it. This sample stays clean only because every scope it creates ends in `OnDestroy`, which Unity
