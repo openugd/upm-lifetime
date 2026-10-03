@@ -83,10 +83,9 @@ namespace OpenUGD
         /// lifetime, least of all <see cref="Lifetime.Eternal"/>.
         /// </para>
         /// <para>
-        /// <b>The source is never disposed</b>, so <c>token.Register(...)</c> and <c>token.WaitHandle</c> keep
-        /// working after cancellation. It has no finalizer and holds no unmanaged resource unless
-        /// <c>token.WaitHandle</c> is read; once the lifetime has terminated and the token is dropped, the GC
-        /// reclaims it.
+        /// <b>The source is never disposed</b>, so <c>token.WaitHandle</c> keeps working after cancellation.
+        /// It has no finalizer and holds no unmanaged resource unless <c>token.WaitHandle</c> is read; once the
+        /// lifetime has terminated and the token is dropped, the GC reclaims it.
         /// </para>
         /// </remarks>
         /// <param name="lifetime">The lifetime to observe.</param>

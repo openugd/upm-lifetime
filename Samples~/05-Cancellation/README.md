@@ -26,8 +26,8 @@ scope-aware for free, and your async code keeps the .NET-idiomatic signature ins
 ## Ownership
 
 The `CancellationTokenSource` is deliberately never disposed: the token is handed out and the method
-cannot know who still holds it, and after `Dispose` both `token.Register(...)` and `token.WaitHandle`
-throw. It is not a leak — a `CancellationTokenSource` has no finaliser and holds no unmanaged resource
+cannot know who still holds it, and after `Dispose` reading `token.WaitHandle` throws
+`ObjectDisposedException`. It is not a leak — a `CancellationTokenSource` has no finaliser and holds no unmanaged resource
 unless someone materialises `WaitHandle` or sets a timer.
 
 ## Run it

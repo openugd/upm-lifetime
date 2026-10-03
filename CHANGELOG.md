@@ -12,8 +12,8 @@ Version 2.0.0, the first of the synchronized OpenUGD 2.x family. It contains bre
 
 ### Added
 - `implicit operator Lifetime(Lifetime.Definition)`: pass a definition where a `Lifetime` is expected.
-  Null-safe; not applied to member access. Can change overload resolution between `Definition` and `Lifetime`
-  overloads.
+  Null-safe; not applied to member access. Affects you if a definition is passed to overloads of `Lifetime`
+  and `object` (now binds to `Lifetime`) or of `Lifetime` and `IDisposable` (now ambiguous).
 - XML documentation on every public member.
 - Eight samples in `Samples~`, one per concept; sample 08 (Unity Integration) has an EditMode test.
 - An EditMode test assembly, `com.openugd.lifetime.tests`, gated on `UNITY_INCLUDE_TESTS`.

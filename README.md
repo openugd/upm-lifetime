@@ -363,9 +363,15 @@ Log(scope.Name);
 var stream = File.OpenRead(path).With(lifetime);
 ```
 
-For a definition, `Lifetime.Define(definition, name)` becomes `definition.Lifetime.DefineNested(name)`. A
-null parent now fails with `NullReferenceException` at the call site instead of `ArgumentNullException`.
-`With` changed its signature, so assemblies compiled against 1.2.0 must be recompiled.
+When the parent is a definition, write `definition.Lifetime.DefineNested(name)`: the new implicit conversion
+to `Lifetime` does not apply to member access, so `definition.DefineNested(name)` does not compile. A null
+parent now fails with `NullReferenceException` at the call site instead of `ArgumentNullException`. `With`
+changed its signature, so assemblies compiled against 1.2.0 must be recompiled.
+
+The implicit conversion can also change which overload a call binds to. A definition passed to a method that
+has a `Lifetime` overload and an `object` overload now binds to the `Lifetime` one; with a `Lifetime` overload
+and an `IDisposable` overload the call no longer compiles (CS0121, ambiguous). Pass `definition.Lifetime`, or
+cast, to choose.
 
 ### Registering on a scope that has ended
 
@@ -375,14 +381,18 @@ calling thread, before `AddAction` returns, and an exception it throws reaches y
 and `AsCancellationToken` returns a cancelled token.
 
 ```csharp
-// 1.2.0: a guard was needed, and it was racy
-if (!lifetime.IsTerminated) lifetime.AddAction(Release);
+// 1.2.0: AddAction dropped Release on a scope that had ended, so the caller ran it by hand,
+// and the check could race with termination
+if (lifetime.IsTerminated) Release();
+else lifetime.AddAction(Release);
 
 // 2.0: Release runs at termination, or now if the lifetime has already ended
 lifetime.AddAction(Release);
 ```
 
 **Affects you if** you register clean-up on a scope that may already have ended: that clean-up now runs.
+Delete guards such as `if (!lifetime.IsTerminated) lifetime.AddAction(Release);`; in 2.0 they skip a
+clean-up that would otherwise run.
 
 `DefineNested` on a terminated lifetime no longer throws `InvalidOperationException`; it returns a definition
 that is already terminated, and anything registered on it runs at once.
@@ -439,7 +449,8 @@ several actions can fail together.
 The OpenUGD packages share a major version: every package of the family is 2.x. Minor and patch versions move
 independently. Each 2.x package works with the 2.x versions of its dependencies at or above the minimums
 declared in its `package.json`. Lifetime has no dependencies; packages that depend on it declare the minimum
-Lifetime version they need, and UPM installs the highest version that any package in the project asks for.
+Lifetime version they need, and UPM installs the highest version any of them asks for, unless your project
+manifest names a version of `com.openugd.lifetime` itself, which then wins.
 
 ## Licence
 
