@@ -43,10 +43,6 @@ namespace OpenUGD
     /// <b>Thread safety.</b> Every member is safe to call concurrently. No lock is ever held while user code
     /// runs, so a termination action may freely call back into this lifetime, its parent, or its children.
     /// </para>
-    /// <para>
-    /// 2.0.0 changes the behaviour and the shape of this type in several breaking ways; the package
-    /// CHANGELOG lists each one with a migration hint.
-    /// </para>
     /// </remarks>
     public class Lifetime
     {
@@ -139,7 +135,6 @@ namespace OpenUGD
             /// parent as whatever its own termination threw: a single failure anywhere in a tree arrives
             /// unwrapped, and aggregates nest only where one scope collected two or more. Call
             /// <see cref="AggregateException.Flatten"/> on an aggregate for the leaves.
-            /// <i>Changed in 2.0.0</i> — in 1.x the first failure aborted the remaining actions.
             /// </para>
             /// <para>
             /// Concurrency: exactly one caller runs the actions. Other concurrent callers return
@@ -157,7 +152,7 @@ namespace OpenUGD
             /// Same as <see cref="Terminate"/>; lets a definition be used with <c>using</c>.
             /// </summary>
             /// <remarks>
-            /// Note that this can therefore throw at the closing brace of a <c>using</c> block; see
+            /// It can therefore throw at the closing brace of a <c>using</c> block; see
             /// <see cref="Terminate"/>.
             /// </remarks>
             /// <exception cref="Exception">
@@ -274,9 +269,8 @@ namespace OpenUGD
         /// <para>
         /// <b>If this lifetime is already terminated, the returned definition is already terminated</b>,
         /// and whatever is then registered on it runs immediately, as for any terminated lifetime. A live
-        /// child of a dead parent is never produced. <i>Changed in 2.0.0</i> — this used to throw
-        /// <see cref="InvalidOperationException"/>, unlike registering anything else on a terminated
-        /// lifetime; test <see cref="Definition.IsTerminated"/> on the result if you need to know.
+        /// child of a dead parent is never produced. Test <see cref="Definition.IsTerminated"/> on the result
+        /// if you need to know.
         /// </para>
         /// </remarks>
         /// <param name="name">
@@ -306,9 +300,6 @@ namespace OpenUGD
         /// to <see cref="Eternal"/>. So it is reachable for exactly as long as one of them is, or its owner
         /// holds it: abandoned together with the scopes it intersects, it is collected with them. An
         /// intersection of no lifetimes is attached to nothing at all.
-        /// <i>Changed in 2.0.0</i> — every intersection used to be nested in <see cref="Eternal"/> as well, so
-        /// one that was never terminated stayed reachable for the life of the process, together with the
-        /// lifetimes it intersected.
         /// </para>
         /// </remarks>
         /// <param name="lifetimes">
@@ -357,27 +348,21 @@ namespace OpenUGD
         /// <remarks>
         /// <para>
         /// <b>If this lifetime is already terminated the action is invoked immediately</b>, on the calling
-        /// thread, before this method returns, and is not stored. This is what guarantees the core
-        /// invariant: every action handed to a lifetime runs exactly once, no matter when it was handed
-        /// over, so callers never need to test <see cref="IsTerminated"/> first. An exception thrown by that
-        /// immediate invocation propagates to the caller.
-        /// <i>Changed in 2.0.0</i> — the action used to be silently dropped, which quietly broke everything
-        /// built on top: disposables that were never disposed, cancellation tokens that never cancelled,
-        /// subscriptions that were never made.
+        /// thread, before this method returns, and is not stored. So every action handed to a lifetime runs
+        /// exactly once, no matter when it was handed over, and callers never need to test
+        /// <see cref="IsTerminated"/> first. An exception thrown by that immediate invocation propagates to the
+        /// caller.
         /// </para>
         /// <para>
         /// <b>Duplicates are allowed.</b> Registering the same delegate twice registers it twice and runs it
-        /// twice, exactly like ordinary .NET multicast delegates.
-        /// <i>Changed in 2.0.0</i> — this used to throw <see cref="ArgumentException"/>, at the cost of an
-        /// O(n) scan on every single registration.
+        /// twice, like ordinary .NET multicast delegates.
         /// </para>
         /// <para>
         /// <b>Order.</b> Actions run in reverse registration order (LIFO).
         /// </para>
         /// <para>
-        /// <b>To unregister</b> there is deliberately no <c>RemoveAction</c>. Use a nested definition and
-        /// terminate it — that composes, it cannot leave a dangling entry, and terminating the nested
-        /// definition also removes it from this lifetime:
+        /// <b>To unregister</b>, there is no <c>RemoveAction</c>: register on a nested definition and terminate
+        /// it, which also removes it from this lifetime:
         /// </para>
         /// <code>
         /// var subscription = lifetime.DefineNested("subscription");
@@ -419,19 +404,15 @@ namespace OpenUGD
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>If this lifetime is already terminated, neither callback runs.</b> A bracket acquires a
-        /// resource and releases it; if the scope has already ended the resource was never acquired, so
-        /// there is nothing to release. This is consistent with <see cref="AddAction"/> under a single
-        /// invariant: every <i>acquired</i> resource is released exactly once. The asymmetry is real and
-        /// intended — an action handed to <see cref="AddAction"/> refers to something the caller already
-        /// holds, whereas a bracket's resource does not exist until <paramref name="onOpen"/> runs.
+        /// <b>If this lifetime is already terminated, neither callback runs:</b> the resource was never
+        /// acquired, so there is nothing to release. Unlike <see cref="AddAction"/>, whose action refers to
+        /// something the caller already holds, a bracket's resource does not exist until
+        /// <paramref name="onOpen"/> runs. Every <i>acquired</i> resource is released exactly once.
         /// </para>
         /// <para>
         /// <paramref name="onOpen"/> runs <i>before</i> <paramref name="onTerminate"/> is registered, so a
-        /// teardown can never be armed for a resource that was not acquired. If <paramref name="onOpen"/>
+        /// teardown is never armed for a resource that was not acquired. If <paramref name="onOpen"/>
         /// throws, nothing is registered and the exception propagates.
-        /// <i>Changed in 2.0.0</i> — the registration used to happen first, an ordering that under the new
-        /// <see cref="AddAction"/> semantics would fire the teardown of a resource that was never opened.
         /// </para>
         /// <para>
         /// If this lifetime terminates concurrently, between the liveness check and the registration, the

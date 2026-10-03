@@ -4,8 +4,8 @@ using System.Threading;
 namespace OpenUGD
 {
     /// <summary>
-    /// Extension methods over <see cref="Lifetime"/>. The core type stays small on purpose; everything that
-    /// is not scope machinery lives here, and this surface is deliberately kept minimal.
+    /// Extension methods over <see cref="Lifetime"/>: tying disposables to a scope, bridging to
+    /// <see cref="CancellationToken"/>, and liveness checks.
     /// </summary>
     public static class LifetimeExtensions
     {
@@ -16,10 +16,8 @@ namespace OpenUGD
         /// <para>
         /// <b>If the lifetime is already terminated the disposable is disposed immediately</b>, before this
         /// method returns; the (already disposed) instance is still returned so the call stays usable inside
-        /// an expression. This follows directly from the <see cref="Lifetime.AddAction"/> invariant. An
-        /// exception thrown by that immediate <see cref="IDisposable.Dispose"/> propagates to the caller.
-        /// <i>Changed in 2.0.0</i> — the registration used to be silently dropped, so the object was never
-        /// disposed at all.
+        /// an expression. An exception thrown by that immediate <see cref="IDisposable.Dispose"/> propagates
+        /// to the caller.
         /// </para>
         /// <para>
         /// <see cref="IDisposable.Dispose"/> is called exactly once per call to this method. Registering one
@@ -29,8 +27,7 @@ namespace OpenUGD
         /// <para>
         /// <b>Returns the static type it was given</b>, so construction, ownership and use fit in one
         /// declaration: <c>var stream = File.OpenRead(path).With(lifetime);</c> gives a
-        /// <c>FileStream</c>. <i>Changed in 2.0.0</i> — the return type used to be <see cref="IDisposable"/>.
-        /// For a value type <typeparamref name="T"/>, the lifetime disposes a boxed copy taken at this call,
+        /// <c>FileStream</c>. For a value type <typeparamref name="T"/>, the lifetime disposes a boxed copy taken at this call,
         /// not the value returned to you; prefer reference types here.
         /// </para>
         /// <para>
@@ -75,36 +72,21 @@ namespace OpenUGD
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <i>Changed in 2.0.0</i> — on a terminated lifetime this used to return a token that could never
-        /// cancel, so any <c>await</c> on it hung forever. The already-terminated case now short-circuits to
-        /// a pre-cancelled token; it allocates nothing and registers nothing. If the lifetime terminates
-        /// during the call instead, <see cref="Lifetime.AddAction"/> invokes <c>Cancel</c> immediately, so
-        /// the returned token is cancelled either way — the race cannot produce a token that never cancels.
+        /// On a terminated lifetime this returns a cancelled token and allocates and registers nothing. If the
+        /// lifetime terminates during the call, <see cref="Lifetime.AddAction"/> invokes <c>Cancel</c>
+        /// immediately, so the returned token is cancelled either way.
         /// </para>
         /// <para>
-        /// <b>Ownership: the source is deliberately never disposed.</b> Two reasons, and the second is the
-        /// decisive one:
+        /// <b>Allocation.</b> Each call on a live lifetime allocates one <see cref="CancellationTokenSource"/>
+        /// and adds one entry to that lifetime's action list, held until termination. Call it once and keep
+        /// the token, or scope it to a nested definition; never call it in a loop against a long-lived
+        /// lifetime, least of all <see cref="Lifetime.Eternal"/>.
         /// </para>
-        /// <list type="bullet">
-        /// <item><description>
-        /// Disposing it would break callers. The token is handed out and this method cannot know who still
-        /// holds it. After <c>Dispose</c>, <c>token.Register(...)</c> and <c>token.WaitHandle</c> throw
-        /// <see cref="ObjectDisposedException"/> — and a token is normally inspected precisely <i>after</i>
-        /// it has been cancelled. Disposal is only safe for whoever owns the source exclusively, and here
-        /// that is nobody.
-        /// </description></item>
-        /// <item><description>
-        /// It is not a leak. <see cref="CancellationTokenSource"/> has no finalizer and holds no unmanaged
-        /// resource unless someone materialises <c>CancellationToken.WaitHandle</c> or sets a timer, and
-        /// this method does neither. Once the lifetime has terminated and the caller has dropped the token,
-        /// the source is unreachable and the GC reclaims it.
-        /// </description></item>
-        /// </list>
         /// <para>
-        /// <b>What this does cost:</b> each call on a live lifetime allocates one source and adds one entry
-        /// to that lifetime's action list, held until termination. Call it once and keep the token, or scope
-        /// it to a nested definition — never call it in a loop against a long-lived lifetime, least of all
-        /// <see cref="Lifetime.Eternal"/>, which never terminates.
+        /// <b>The source is never disposed</b>, so <c>token.Register(...)</c> and <c>token.WaitHandle</c> keep
+        /// working after cancellation. It has no finalizer and holds no unmanaged resource unless
+        /// <c>token.WaitHandle</c> is read; once the lifetime has terminated and the token is dropped, the GC
+        /// reclaims it.
         /// </para>
         /// </remarks>
         /// <param name="lifetime">The lifetime to observe.</param>
