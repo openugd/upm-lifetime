@@ -8,6 +8,10 @@ separate so that the split is visible.
 The adapter is one small component. There is nothing Unity-specific inside the library, and there does not
 need to be.
 
+If your project uses `com.openugd.corelib` 2.0, you do not need to copy `LifetimeScope`: call
+`gameObject.GetLifetime()`, whose scope is created in `Awake`, nested in `PlaySession.Lifetime` and ended in
+`OnDestroy`. This sample shows what such an adapter has to get right.
+
 ## How to use it
 
 Attach `LifetimeScope` to a GameObject, then add `ScopedConsumer` and/or `ScopedAsyncWork` to the same
