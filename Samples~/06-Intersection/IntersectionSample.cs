@@ -16,8 +16,8 @@ namespace OpenUGD.Samples.Intersection
     /// <para>
     /// The result is an ordinary <see cref="Lifetime.Definition"/> that <b>you own</b>: you can still
     /// terminate it yourself, earlier than any of the inputs. Until it is terminated it stays attached to
-    /// every input lifetime and to <see cref="Lifetime.Eternal"/> — so terminate it when you are done, and
-    /// do not create intersections in a loop and abandon them.
+    /// every input lifetime, and to nothing else — so terminate it when you are done, and do not create
+    /// intersections in a loop and abandon them: each one stays on its inputs until the first of them ends.
     /// </para>
     /// <para>
     /// If any input is <b>already terminated</b>, the returned definition comes back already terminated —

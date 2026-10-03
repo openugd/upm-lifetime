@@ -106,7 +106,7 @@ read Changed and Removed before upgrading.
 - Assembly definition now declares `rootNamespace` `OpenUGD`, `noEngineReferences: true` and the full
   canonical key set instead of relying on editor defaults.
 - README rewritten with install instructions, a quick start and an API overview.
-- The package now ships its own test assembly (`Tests/Editor`, 97 tests, gated on `UNITY_INCLUDE_TESTS`).
+- The package now ships its own test assembly (`Tests/Editor`, 100 tests, gated on `UNITY_INCLUDE_TESTS`).
 
 ### Removed
 - **`Lifetime.Define(Lifetime, string)`, `Lifetime.Definition.Define(Lifetime, string)` and
@@ -126,6 +126,15 @@ read Changed and Removed before upgrading.
 - **Deduplication in `AddDefinition`.** Attaching the same definition to the same parent twice now
   registers twice, which is harmless: `Terminate` is idempotent and each attach registers its own
   detach. Removes another O(n) scan.
+
+### Fixed
+- **`Intersection` no longer attaches its definition to `Lifetime.Eternal`**, only to the lifetimes it
+  intersects. Every intersection used to be nested in `Eternal` as well, so one that was never terminated
+  stayed reachable for the life of the process, and through its detach actions so did the lifetimes it
+  intersected and their trees; `Intersection()` of no lifetimes could never be collected at all. Each
+  intersection also took a slot, and the lock, of the one process-wide `Eternal`. Termination, the
+  born-terminated rule and detaching are unchanged. `Definition.ParentId` of an intersection is now `0`
+  (no lifetime has that id) instead of the id of `Eternal`.
 
 ### Unchanged (explicitly)
 - `Lifetime.Terminate()` remains private: only the holder of a `Definition` can end a lifetime.

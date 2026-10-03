@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace OpenUGD.Tests
 {
@@ -12,9 +13,8 @@ namespace OpenUGD.Tests
     ///
     /// State hygiene: Lifetime.Eternal is a process-wide static that never terminates, so anything
     /// registered on it directly would live for the whole test run. Every test therefore hangs its
-    /// lifetimes off a per-test root definition that TearDown terminates; definitions that implicitly
-    /// parent onto Eternal (Lifetime.Intersection does) are tracked and terminated too, which also
-    /// unregisters them from Eternal.
+    /// lifetimes off a per-test root definition that TearDown terminates. Intersections are not nested in
+    /// that root (an intersection is attached to its inputs only), so they are tracked and terminated too.
     /// </summary>
     [TestFixture]
     public class LifetimeTests
@@ -32,7 +32,7 @@ namespace OpenUGD.Tests
         [TearDown]
         public void TearDown()
         {
-            // Terminate Eternal-parented definitions first, then the per-test root. Some tests register
+            // Terminate the tracked definitions first, then the per-test root. Some tests register
             // throwing actions on purpose; swallowing here keeps a clean-up failure from masking the real
             // assertion failure.
             foreach (var definition in _tracked)
@@ -61,7 +61,7 @@ namespace OpenUGD.Tests
             _root = null;
         }
 
-        /// <summary>Registers an Eternal-parented definition for termination in TearDown.</summary>
+        /// <summary>Registers a definition outside the per-test root, such as an intersection, for termination in TearDown.</summary>
         private Lifetime.Definition Track(Lifetime.Definition definition)
         {
             _tracked.Add(definition);
@@ -368,6 +368,58 @@ namespace OpenUGD.Tests
             intersection.Terminate();
 
             Assert.AreEqual(1, calls);
+        }
+
+        [Test]
+        public void Intersection_HasNoParentId()
+        {
+            var first = NewDefinition("first");
+            var second = NewDefinition("second");
+
+            var intersection = Track(Lifetime.Intersection(first.Lifetime, second.Lifetime));
+
+            Assert.AreEqual(0, intersection.ParentId,
+                "An intersection has no single parent; 0 is never the id of a lifetime.");
+            Assert.AreNotEqual(0, Lifetime.Eternal.Id);
+        }
+
+        [Test]
+        public void Intersection_OfNoLifetimes_IsCollectedOnceItsOwnerLetsGoOfIt()
+        {
+            // An intersection used to be nested in Eternal as well as in its inputs, so one that was never
+            // terminated stayed reachable for the life of the process. With no inputs, its owner is the only
+            // thing that may hold it.
+            var weak = OnAThreadOfItsOwn(() => new WeakReference(Lifetime.Intersection()));
+
+            CollectGarbage();
+
+            Assert.IsFalse(weak.IsAlive, "An abandoned intersection must not be kept alive by Eternal.");
+        }
+
+        [Test]
+        public void Intersection_OfAbandonedLifetimes_IsCollectedTogetherWithThem()
+        {
+            // The intersection's detach actions refer to its inputs, so whatever kept an abandoned intersection
+            // alive kept the scopes it intersected alive too, and their whole tree with them.
+            var weak = OnAThreadOfItsOwn(() =>
+            {
+                var root = Lifetime.Intersection();
+                var first = root.Lifetime.DefineNested("first");
+                var second = root.Lifetime.DefineNested("second");
+                var intersection = Lifetime.Intersection(first.Lifetime, second.Lifetime);
+                intersection.Lifetime.AddAction(() => { });
+                return new[]
+                {
+                    new WeakReference(intersection), new WeakReference(first), new WeakReference(second),
+                    new WeakReference(root)
+                };
+            });
+
+            CollectGarbage();
+
+            Assert.IsFalse(weak[0].IsAlive, "An abandoned intersection must be collected with its inputs.");
+            Assert.IsTrue(weak.All(reference => !reference.IsAlive),
+                "Nothing outside the abandoned tree may keep its scopes alive.");
         }
 
         [Test]
@@ -1210,6 +1262,45 @@ namespace OpenUGD.Tests
             Assert.IsFalse(weakChild.IsAlive,
                 "A terminated nested definition must no longer be referenced by its parent.");
             GC.KeepAlive(parent);
+        }
+
+        /// <summary>
+        /// Runs the set-up of a retention test on a thread of its own and waits for it, so that nothing it
+        /// created is referenced from a live stack once it returns. A conservative collector, such as the Boehm
+        /// GC of Unity's editor, treats anything on a live stack that looks like a pointer as a root; the stack
+        /// of a finished thread is not scanned. (Measured for the signal package's retention tests on the Mono
+        /// of Unity 6000.0.41f1: created on the calling thread, an unreachable object survived 19 of 20
+        /// collections; created on a thread of its own, none of 20.)
+        /// </summary>
+        private static T OnAThreadOfItsOwn<T>(Func<T> setUp)
+        {
+            var result = default(T);
+            Exception failure = null;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    result = setUp();
+                }
+                catch (Exception exception)
+                {
+                    failure = exception;
+                }
+            }) { IsBackground = true, Name = "retention-set-up" };
+
+            thread.Start();
+            Assert.IsTrue(thread.Join(30000), "the set-up thread did not finish");
+            if (failure != null) Assert.Fail("the set-up threw: " + failure);
+            return result;
+        }
+
+        private static void CollectGarbage()
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

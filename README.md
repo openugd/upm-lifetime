@@ -125,7 +125,7 @@ public class Example
 | --- | --- |
 | `static Lifetime Eternal` | A lifetime that is never terminated: the root of every tree. Process-wide — see [Eternal and play sessions](#eternal-and-play-sessions). |
 | `Definition DefineNested(string name = null)` | Creates a scope nested in this lifetime. If this lifetime has already terminated, the new definition is **born terminated**. `name` is for debugging only. |
-| `static Definition Intersection(params Lifetime[] lifetimes)` | Creates a scope terminated when any of `lifetimes` terminates. |
+| `static Definition Intersection(params Lifetime[] lifetimes)` | Creates a scope terminated when any of `lifetimes` terminates. It is attached to those lifetimes only, so abandoned together with them it is collected with them. |
 | `Lifetime AddAction(Action action)` | Registers an action to run on termination, LIFO. Duplicates are allowed. If the lifetime has **already terminated the action is invoked immediately**, never dropped. |
 | `Lifetime AddBracket(Action onOpen, Action onTerminate)` | Invokes `onOpen` now, then registers `onTerminate` for termination. If the lifetime has already terminated, **neither** runs — nothing was acquired, so there is nothing to release. |
 | `bool IsTerminated` | Whether the lifetime has been terminated. |
@@ -139,7 +139,7 @@ public class Example
 | `void Terminate()` | Terminates the lifetime and runs its actions in reverse order. Idempotent. Every action runs even if some throw; then a single failure is rethrown as itself, two or more as one `AggregateException`. |
 | `void Dispose()` | Same as `Terminate()`. |
 | `bool IsTerminated` | Whether the owned lifetime has been terminated. |
-| `string Name`, `int ParentId` | Debugging identifiers: the name given to `DefineNested`, and the `Id` of the parent lifetime (of `Eternal`, for an intersection). |
+| `string Name`, `int ParentId` | Debugging identifiers: the name given to `DefineNested`, and the `Id` of the parent lifetime (`0` for an intersection, which has no single parent). |
 | `implicit operator Lifetime(Definition)` | Lets a definition be passed where a `Lifetime` is expected. Not applied to member access: write `scope.Lifetime.AddAction(...)`. |
 
 ### `LifetimeExtensions`

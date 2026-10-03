@@ -24,8 +24,9 @@ session's death; nest it under the session and it survives the panel's.
 
 ## Ownership
 
-Until it is terminated, an intersection stays attached to every input **and to `Lifetime.Eternal`**. Own it
-and terminate it — do not create intersections in a loop and abandon them.
+Until it is terminated, an intersection stays attached to every input, and to nothing else. Own it and
+terminate it — do not create intersections in a loop and abandon them: each one stays on its inputs until
+the first of them ends. One abandoned together with its inputs is collected with them.
 
 A `null` array or a `null` element throws `ArgumentNullException`, and validation runs before any wiring,
 so a bad call cannot leave a half-attached definition behind.

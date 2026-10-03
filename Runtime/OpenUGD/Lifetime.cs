@@ -21,7 +21,8 @@ namespace OpenUGD
     /// <b>Creating scopes.</b> There are exactly two ways: <see cref="DefineNested"/> creates a child that
     /// ends when this lifetime ends, and <see cref="Intersection"/> creates a scope that ends when any of
     /// several lifetimes ends. Either kind can also be ended early by its owner, and then detaches itself.
-    /// The root of every tree is <see cref="Eternal"/>.
+    /// The root of every tree is <see cref="Eternal"/>; an intersection belongs to the trees of its inputs,
+    /// and an intersection of no lifetimes to none.
     /// </para>
     /// <para>
     /// <b>Core invariant.</b> Every action handed to a lifetime runs exactly once. If the lifetime is alive,
@@ -103,8 +104,8 @@ namespace OpenUGD
             /// [used for debugging purposes]
             /// The <see cref="OpenUGD.Lifetime.Id"/> of the lifetime this definition was defined on.
             /// Carries no semantics; it exists only to make the lifetime tree readable while debugging.
-            /// For a definition produced by <see cref="OpenUGD.Lifetime.Intersection"/> this is the id of
-            /// <see cref="OpenUGD.Lifetime.Eternal"/>, not of any of the intersected lifetimes.
+            /// For a definition produced by <see cref="OpenUGD.Lifetime.Intersection"/> this is <c>0</c>, which
+            /// is never the id of a lifetime: an intersection has no single parent.
             /// </summary>
             public int ParentId { get; }
 
@@ -184,6 +185,9 @@ namespace OpenUGD
         }
 
         private static int _instances;
+
+        // The ParentId of an intersection. Ids start at 1 (see the constructor), so no lifetime has this one.
+        private const int NoParentId = 0;
 
         /// <summary>
         /// A lifetime that never terminates. Use it as the root of a lifetime tree and as the parent of
@@ -292,9 +296,20 @@ namespace OpenUGD
         /// independent scopes are all alive, which a parent-child tree cannot express.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// If one of <paramref name="lifetimes"/> is already terminated, the returned definition is already
         /// terminated. Terminating the returned definition first detaches it from every one of
         /// <paramref name="lifetimes"/>.
+        /// </para>
+        /// <para>
+        /// The intersection is attached to <paramref name="lifetimes"/> and to nothing else — in particular not
+        /// to <see cref="Eternal"/>. So it is reachable for exactly as long as one of them is, or its owner
+        /// holds it: abandoned together with the scopes it intersects, it is collected with them. An
+        /// intersection of no lifetimes is attached to nothing at all.
+        /// <i>Changed in 2.0.0</i> — every intersection used to be nested in <see cref="Eternal"/> as well, so
+        /// one that was never terminated stayed reachable for the life of the process, together with the
+        /// lifetimes it intersected.
+        /// </para>
         /// </remarks>
         /// <param name="lifetimes">
         /// The lifetimes to intersect. An empty array yields the vacuous intersection: a definition that
@@ -303,7 +318,7 @@ namespace OpenUGD
         /// </param>
         /// <returns>
         /// The new definition. The caller owns it: until it is terminated it stays attached to every
-        /// lifetime in <paramref name="lifetimes"/> and to <see cref="Eternal"/>.
+        /// lifetime in <paramref name="lifetimes"/>.
         /// </returns>
         /// <exception cref="ArgumentNullException">
         /// <paramref name="lifetimes"/>, or any element of it, is <c>null</c>.
@@ -315,7 +330,7 @@ namespace OpenUGD
                     $"{nameof(lifetimes)} can't be null on define an intersection");
 
             // Validate everything before wiring anything up, so a bad argument cannot leave a
-            // half-built definition attached to some of the lifetimes (and to Eternal, forever).
+            // half-built definition attached to some of the lifetimes.
             foreach (var lifetime in lifetimes)
             {
                 if (lifetime == null)
@@ -323,7 +338,10 @@ namespace OpenUGD
                         $"{nameof(lifetimes)} can't contain null on define an intersection");
             }
 
-            var definition = Eternal.DefineNested();
+            // Attached to its inputs only. Each AddDefinition is the same race-free wiring DefineNested uses:
+            // a dead input terminates the definition on the spot, and every later input then sees it
+            // terminated and detaches at once (see AddDefinition).
+            var definition = new Definition(null, NoParentId);
             foreach (var lifetime in lifetimes)
             {
                 lifetime.AddDefinition(definition);
