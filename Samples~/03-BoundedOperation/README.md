@@ -31,6 +31,12 @@ the receiver of a member or extension-method call. Registering on the scope itse
 method (or throwing out of it) releases the loader, the atlas and the event subscription in reverse order.
 Run it twice, as `Run` does, and notice the second call starts from a clean slate.
 
+## Run it
+
+```csharp
+BoundedOperationSample.Run(Console.WriteLine); // or Debug.Log in Unity
+```
+
 ## Caveat
 
 `Dispose()` is `Terminate()`, so a throwing clean-up surfaces **at the closing brace** of the `using`

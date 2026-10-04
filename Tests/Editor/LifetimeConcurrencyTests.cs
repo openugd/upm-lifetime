@@ -6,6 +6,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+// A few assertion messages start with a tag for the rule they check:
+//   R3    no lock is held while user code runs or while another Lifetime is called, so concurrent
+//         termination, definition and detach cannot deadlock
+//   LS-4  detaching a child from its parent is amortised O(1): it empties a slot by index, and
+//         compaction moves the surviving entries
+
 namespace OpenUGD.Tests
 {
     /// <summary>
@@ -75,7 +81,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // R3: no lock is held across a call out
+        // No lock is held across a call out
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -99,7 +105,7 @@ namespace OpenUGD.Tests
                         {
                             observedTerminated = lifetime.IsTerminated;
                             var invoked = false;
-                            lifetime.AddAction(() => invoked = true); // R1: immediate
+                            lifetime.AddAction(() => invoked = true); // the lifetime has ended: runs immediately
                             observedImmediateInvoke = invoked;
                         }
                         finally
@@ -123,7 +129,7 @@ namespace OpenUGD.Tests
         [Test]
         public void ConcurrentParentAndChildTermination_DoesNotDeadlockAndRunsEachActionOnce()
         {
-            // R3: parent->child in AddDefinition versus child->parent in the detach closure is the ABBA
+            // Parent->child in AddDefinition versus child->parent in the detach closure is the ABBA
             // pair. Two threads race head-on through both directions, with a Barrier so they collide.
             const int rounds = 250;
 
@@ -166,8 +172,8 @@ namespace OpenUGD.Tests
         [Test]
         public void ConcurrentDefineAndTerminateOnTheSameParent_NeverThrowsAndNeverLeavesALiveChild()
         {
-            // R3: do not call into another Lifetime while holding this one's lock.
-            // LS-8: defining on a dying parent never throws. Whichever way the race falls, every child ends up
+            // No call into another Lifetime while holding this one's lock.
+            // Defining on a dying parent never throws. Whichever way the race falls, every child ends up
             // terminated - by the parent's cascade, or at birth - and its action runs exactly once.
             const int rounds = 100;
             const int perRound = 20;
@@ -220,7 +226,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // R1: the AddAction / Terminate race has no losing side
+        // The AddAction / Terminate race has no losing side
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -297,7 +303,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // R5: no shared mutable state between Lifetime instances
+        // No shared mutable state between Lifetime instances
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -371,7 +377,7 @@ namespace OpenUGD.Tests
                                         () => { },
                                         () => Interlocked.Increment(ref invoked));
 
-                                    // duplicate delegate registration under contention (R6)
+                                    // duplicate delegate registration under contention
                                     Action duplicate = () => Interlocked.Increment(ref invoked);
                                     Interlocked.Add(ref registered, 2);
                                     child.Lifetime.AddAction(duplicate);
@@ -503,9 +509,10 @@ namespace OpenUGD.Tests
         [Test]
         public void ConcurrentOutOfOrderDetachOnASharedParent_RunsEveryChildExactlyOnce()
         {
-            // LS-4 under contention: detach empties a slot by index, and compaction moves the survivors and
-            // rewrites their indices, while other threads keep appending to and detaching from the same
-            // parent. Each thread keeps a quarter of its children alive for the parent's own teardown.
+            // Out-of-order detach under contention: detach empties a slot by index, and compaction moves
+            // the survivors and rewrites their indices, while other threads keep appending to and detaching
+            // from the same parent. Each thread keeps a quarter of its children alive for the parent's own
+            // teardown.
             const int threads = 8;
             const int perThread = 2000;
 
@@ -566,7 +573,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // LS-4: terminating many children is linear, not quadratic
+        // Terminating many children is linear, not quadratic
         // ------------------------------------------------------------------------------------------
 
         public enum DetachOrder
@@ -581,9 +588,9 @@ namespace OpenUGD.Tests
         public void DetachingTwentyThousandChildrenOneByOne_CostsAboutAsMuchAsTheParentsCascade(
             [Values] DetachOrder order)
         {
-            // LS-4: before the fix a child detached with List.Remove and delegate equality - an O(n) scan or
-            // shift per child, so terminating n children one by one cost O(n^2) (audit: 10k roots 313 ms,
-            // 40k 2.5 s). The test calibrates itself on the machine and runtime it runs on: detaching N
+            // In 1.2.0 a child detached with List.Remove and delegate equality - an O(n) scan or shift
+            // per child, so terminating n children one by one cost O(n^2) (10k children took 313 ms, 40k
+            // 2.5 s). The test calibrates itself on the machine and runtime it runs on: detaching N
             // children one by one must cost about as much as letting the parent's cascade terminate N
             // children, which needs no removal at all. Measured on .NET 10 at N = 20,000: the cascade takes
             // about 0.7 ms and O(1) detach 1-2 ms in every order, while the List.Remove version took 574 ms
@@ -665,7 +672,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // R9: the practical reason AsCancellationToken exists
+        // The practical reason AsCancellationToken exists
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -678,8 +685,8 @@ namespace OpenUGD.Tests
             definition.Terminate();
 
             // Deliberately NOT pending.Wait(timeout): Task.Wait throws AggregateException on a cancelled
-            // task, so the blind version of this test would have failed with an unhandled exception rather
-            // than an assertion. Spin on IsCompleted instead, then assert the completion state.
+            // task, so the test would fail with an unhandled exception rather than an assertion. Spin on
+            // IsCompleted instead, then assert the completion state.
             Assert.IsTrue(SpinWait.SpinUntil(() => pending.IsCompleted, TimeSpan.FromSeconds(10)),
                 "The awaited operation must complete once the lifetime ends.");
             Assert.IsTrue(pending.IsCanceled);

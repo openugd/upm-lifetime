@@ -1,11 +1,14 @@
 # Lifetime
 
+[![OpenUPM](https://img.shields.io/npm/v/com.openugd.lifetime?label=openupm&registry_uri=https://package.openupm.com)](https://openupm.com/packages/com.openugd.lifetime/) [![Tests](https://github.com/openugd/upm-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/openugd/upm-tools/actions/workflows/ci.yml)
+
 `com.openugd.lifetime` gives you a scope object, a `Lifetime`, that you register clean-up on. When the scope
 ends, the clean-up runs once, at a point you choose and in reverse order, instead of whenever the garbage
 collector gets to it. Use it for anything that must be released when its owner goes away: subscriptions,
 timers, cancellation tokens, pooled objects, native handles, or a whole screen's worth of state. It is the
-same model as JetBrains Rider's `Lifetime`/`LifetimeDefinition`, and it is the base of every other OpenUGD
-package.
+same model as JetBrains Rider's `Lifetime`/`LifetimeDefinition`. Every OpenUGD 2.x package that needs scopes
+is built on it: Signal, Context, CoreLib and CoreLib uGUI Presenters (see
+[The OpenUGD family](#the-openugd-family)).
 
 The package is plain C#. It references neither `UnityEngine` nor `UnityEditor`, so the same code compiles in
 an ordinary .NET project.
@@ -107,6 +110,20 @@ public static class QuickStart
 
         Console.WriteLine(lifetime.IsTerminated); // True
     }
+}
+```
+
+The example prints with `Console.WriteLine`, which Unity does not show in its Console window. To run it in
+Unity, replace `Console.WriteLine` with `UnityEngine.Debug.Log` and start it from a component on any
+GameObject in a scene:
+
+<!-- upm-tools: no-compile (calls QuickStart from the example above) -->
+```csharp
+using UnityEngine;
+
+public sealed class QuickStartRunner : MonoBehaviour
+{
+    private async void Start() => await QuickStart.RunAsync();
 }
 ```
 
@@ -313,6 +330,19 @@ Samples 01 to 07 are plain C# and take an `Action<string>` for output:
 OpenUGD.Samples.CapabilitySplit.CapabilitySplitSample.Run(Console.WriteLine); // or Debug.Log in Unity
 ```
 
+In Unity, call an imported sample from a component and pass `Debug.Log`, so that its output appears in the
+Console window:
+
+<!-- upm-tools: no-compile (the sample assemblies exist only once a sample is imported) -->
+```csharp
+using UnityEngine;
+
+public sealed class LifetimeSampleRunner : MonoBehaviour
+{
+    private void Start() => OpenUGD.Samples.CapabilitySplit.CapabilitySplitSample.Run(Debug.Log);
+}
+```
+
 ## Running the tests
 
 The package ships an EditMode test assembly, `com.openugd.lifetime.tests`. To run it in your project, list the
@@ -331,6 +361,12 @@ package under `testables` in `Packages/manifest.json`:
 
 Then open *Window > General > Test Runner*, select *EditMode* and run the `com.openugd.lifetime.tests`
 assembly. The Unity Test Framework package must be installed; new projects include it.
+
+The checks also run in public CI: [openugd/upm-tools](https://github.com/openugd/upm-tools/actions/workflows/ci.yml)
+compiles this package, its samples and the complete examples in this README (those that declare a type) against
+Unity 6000.0's assemblies and runs its engine-free tests on every change there and every Monday. The EditMode test
+of sample 08 needs the editor (category `RequiresUnity`), so CI only compiles it; it runs in a real Unity
+6000.0.41f1 editor before each release.
 
 ## Upgrading to 2.0
 
@@ -444,13 +480,48 @@ several actions can fail together.
 - Actions run in reverse registration order, now a documented guarantee.
 - `Lifetime.Id`, `Definition.ParentId` and `Definition.Name` are debugging aids with no semantics.
 
+## The OpenUGD family
+
+Six packages, versioned together as 2.x and published on [OpenUPM](https://openupm.com/packages/?q=com.openugd)
+under the `com.openugd` scope. Installing one brings the ones it depends on.
+
+| Package | What it gives you | Depends on |
+| --- | --- | --- |
+| [Lifetime](https://github.com/openugd/upm-lifetime#readme) — `com.openugd.lifetime` | Scopes with deterministic, reverse-order clean-up | — |
+| [Signal](https://github.com/openugd/upm-signal#readme) — `com.openugd.signal` | Typed events whose subscriptions end with a lifetime | Lifetime |
+| [Context](https://github.com/openugd/upm-context#readme) — `com.openugd.context` | Dependency injection that validates the whole graph before it builds anything | Lifetime |
+| [CoreLib](https://github.com/openugd/upm-corelib#readme) — `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, presenters, commands, logging | Lifetime, Signal, Context |
+| [CoreLib uGUI Presenters](https://github.com/openugd/upm-corelib-widgets#readme) — `com.openugd.corelib.widgets` | Presenters that bind uGUI and TextMesh Pro controls to a model | CoreLib, Context, Signal, Lifetime, uGUI |
+| [uGUI Components](https://github.com/openugd/upm-ui#readme) — `com.openugd.ui` | Shader-free uGUI components: flip, gradient, invisible hit area | uGUI |
+
+Start with Lifetime and Signal for plain C# scopes and events, add Context for dependency injection, and CoreLib to
+run it inside a Unity scene. [`com.openugd.configuration`](https://github.com/openugd/upm-configuration), a
+string-keyed configuration for Context, is 0.x and not on OpenUPM yet. Other `com.openugd.*` packages on OpenUPM
+predate 2.0 and are not part of this family.
+
 ## Versioning
 
-The OpenUGD packages share a major version: every package of the family is 2.x. Minor and patch versions move
-independently. Each 2.x package works with the 2.x versions of its dependencies at or above the minimums
+The six packages of the family above share a major version: every one of them is 2.x. Minor and patch versions
+move independently. Each 2.x package works with the 2.x versions of its dependencies at or above the minimums
 declared in its `package.json`. Lifetime has no dependencies; packages that depend on it declare the minimum
 Lifetime version they need, and UPM installs the highest version any of them asks for, unless your project
 manifest names a version of `com.openugd.lifetime` itself, which then wins.
+
+`com.openugd.asyncbundles` 0.0.1, an older package in the same OpenUPM scope, depends on Lifetime 1.1.0 and
+Signal 1.0.0 and does not compile against 2.0. Installed next to Lifetime 2.0 or any 2.x package built on it,
+it stops compiling, because UPM resolves `com.openugd.lifetime` to the higher version, 2.0.0.
+
+The changes in each version are listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Contributing
+
+Report a bug or an idea at
+[github.com/openugd/upm-lifetime/issues](https://github.com/openugd/upm-lifetime/issues): include the Unity
+version, the package version and, for an exception, the full message. To work on the package, clone it,
+reference the clone from a Unity 6 project (`"com.openugd.lifetime": "file:../path/to/upm-lifetime"` in
+`Packages/manifest.json`), add `com.openugd.lifetime` to `testables`, and run its tests in the Test Runner. The
+checks CI runs are scripts in [openugd/upm-tools](https://github.com/openugd/upm-tools); its README shows how to
+run them locally.
 
 ## Licence
 

@@ -31,4 +31,10 @@ the first of them ends. One abandoned together with its inputs is collected with
 A `null` array or a `null` element throws `ArgumentNullException`, and validation runs before any wiring,
 so a bad call cannot leave a half-attached definition behind.
 
+## Run it
+
+```csharp
+IntersectionSample.Run(Console.WriteLine); // or Debug.Log in Unity
+```
+
 This sample is plain C# — the package references neither `UnityEngine` nor `UnityEditor`.

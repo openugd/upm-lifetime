@@ -5,6 +5,15 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
+// A few assertion messages start with a tag for the rule they check:
+//   R1   every action handed to a lifetime runs exactly once: at termination, or immediately if the
+//        lifetime has already ended
+//   R4   a throwing termination action does not stop the others; one failure is rethrown as itself,
+//        two or more as one AggregateException
+//   R8   a Definition converts implicitly to its Lifetime, and the conversion is null-safe
+//   R12  the shape of the public API: AddAction and AddBracket return the Lifetime, and Id, Name and
+//        ParentId are debugging aids that are still part of it
+
 namespace OpenUGD.Tests
 {
     /// <summary>
@@ -113,7 +122,7 @@ namespace OpenUGD.Tests
         private static void ThrowFromNamedFrame(Exception exception) => throw exception;
 
         // ------------------------------------------------------------------------------------------
-        // Eternal, Name / ParentId / Id (R12: debugging aids, but part of the public API)
+        // Eternal, Name / ParentId / Id (debugging aids, but part of the public API)
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -188,9 +197,8 @@ namespace OpenUGD.Tests
         [Test]
         public void DefineNested_OnATerminatedLifetime_ReturnsABornTerminatedDefinition()
         {
-            // LS-8: the same dead-scope rule as AddAction, With and AsCancellationToken - no throw, and
-            // never a live child of a dead parent. REPLACES Define_OnTerminatedLifetime_Throws, which pinned
-            // the 1.x InvalidOperationException.
+            // The same dead-scope rule as AddAction, With and AsCancellationToken - no throw, and
+            // never a live child of a dead parent. 1.x threw InvalidOperationException here.
             var dead = NewTerminatedDefinition("dead-parent");
 
             Lifetime.Definition child = null;
@@ -339,7 +347,7 @@ namespace OpenUGD.Tests
         [Test]
         public void Intersection_WithTheSameLifetimeSuppliedTwice_TerminatesOnceWithoutThrowing()
         {
-            // R6: duplicates are no longer rejected, so intersecting one lifetime with itself must be
+            // Duplicates are no longer rejected, so intersecting one lifetime with itself must be
             // harmless — Terminate is idempotent, so the actions still run exactly once.
             var lifetime = NewDefinition("repeated");
             Lifetime.Definition intersection = null;
@@ -425,8 +433,8 @@ namespace OpenUGD.Tests
         [Test]
         public void Intersection_WithANullArrayOrANullElement_ThrowsArgumentNullException()
         {
-            // Added in the merge: neither blind suite covered this. 1.x threw NullReferenceException
-            // part-way through wiring, leaving a definition attached to Eternal forever.
+            // 1.x threw NullReferenceException part-way through wiring, leaving a definition attached to
+            // Eternal forever.
             var alive = NewDefinition("alive");
 
             Assert.Throws<ArgumentNullException>(() => Lifetime.Intersection(null));
@@ -492,7 +500,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // Terminate / Dispose / using / implicit conversion (R7, R8)
+        // Terminate / Dispose / using / implicit conversion
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -513,7 +521,7 @@ namespace OpenUGD.Tests
         [Test]
         public void Dispose_ThroughTheIDisposableInterface_TerminatesTheLifetime()
         {
-            // R7: a single public Dispose() must still satisfy IDisposable after the redundant explicit
+            // A single public Dispose() must still satisfy IDisposable after the redundant explicit
             // implementation was deleted.
             var definition = NewDefinition("idisposable");
             var calls = 0;
@@ -616,7 +624,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // AddAction (R1, R6, R10, R12)
+        // AddAction
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -635,7 +643,7 @@ namespace OpenUGD.Tests
         [Test]
         public void AddAction_RunsActionsInReverseRegistrationOrderAndReturnsTheLifetimeForChaining()
         {
-            // R10 + R12.
+            // Reverse registration order, and AddAction returns the Lifetime so that calls chain.
             var definition = NewDefinition("lifo");
             var order = new List<string>();
 
@@ -652,9 +660,8 @@ namespace OpenUGD.Tests
         [Test]
         public void AddAction_OnTerminatedLifetime_InvokesTheActionImmediatelyAndExactlyOnce()
         {
-            // R1: every action handed to a Lifetime runs exactly once, no matter when it was handed over.
-            // This REPLACES the 1.x test AddAction_OnTerminatedLifetime_DoesNothing, which asserted that the
-            // action was silently dropped.
+            // Every action handed to a Lifetime runs exactly once, no matter when it was handed over.
+            // 1.x silently dropped the action.
             var definition = NewTerminatedDefinition("dead");
             var calls = 0;
             var observedBefore = -1;
@@ -703,8 +710,9 @@ namespace OpenUGD.Tests
         [Test]
         public void AddAction_OnTerminatedLifetime_PropagatesAThrowFromTheImmediateInvocation()
         {
-            // R1: the immediate invocation is a real invocation, so its failure must reach the call site
-            // rather than being swallowed — swallowing is the very class of bug R1 removes.
+            // The immediate invocation is a real invocation, so its failure must reach the call site
+            // rather than being swallowed — swallowing is the very class of bug the immediate invocation
+            // removes.
             var definition = NewTerminatedDefinition("dead-throwing");
             var boom = new MarkerException("immediate");
 
@@ -716,8 +724,8 @@ namespace OpenUGD.Tests
         [Test]
         public void AddAction_WithTheSameDelegateTwice_RegistersTwiceAndInvokesItTwice()
         {
-            // R6: duplicates are permitted and run once per registration (multicast semantics).
-            // This REPLACES the 1.x test AddAction_SameActionTwice_ThrowsArgumentException.
+            // Duplicates are permitted and run once per registration (multicast semantics).
+            // 1.x threw ArgumentException for the second registration.
             var definition = NewDefinition("duplicates");
             var calls = 0;
             Action action = () => calls++;
@@ -765,8 +773,8 @@ namespace OpenUGD.Tests
         [Test]
         public void AddAction_WithNullAction_ThrowsArgumentNullException()
         {
-            // Added in the merge: neither blind suite covered it, and it pins a deliberate 2.0.0 break.
-            // 1.x stored the null and skipped it at invoke time — a silent drop of exactly the kind R1 kills.
+            // Pins a deliberate 2.0.0 break: 1.x stored the null and skipped it at invoke time — a silent
+            // drop of exactly the kind that "every action runs exactly once" rules out.
             var alive = NewDefinition("null-action");
             var dead = NewTerminatedDefinition("null-action-dead");
 
@@ -777,7 +785,7 @@ namespace OpenUGD.Tests
         [Test]
         public void AddAction_RegisteredFromInsideATerminationAction_InvokesTheNewActionImmediately()
         {
-            // R1 + R3: re-entrant registration during termination must neither deadlock nor be dropped.
+            // Re-entrant registration during termination must neither deadlock nor be dropped.
             // Nested two levels deep, so a one-shot fix would not pass.
             var definition = NewDefinition("reentrant");
             var lifetime = definition.Lifetime;
@@ -798,7 +806,7 @@ namespace OpenUGD.Tests
         [Test]
         public void IsTerminated_ObservedFromInsideATerminationAction_IsAlreadyTrue()
         {
-            // R3: the state flip happens under the lock, before any callback is invoked outside it.
+            // The state flip happens under the lock, before any callback is invoked outside it.
             var definition = NewDefinition("state-during-termination");
             bool? onLifetime = null;
             bool? onDefinition = null;
@@ -819,7 +827,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // AddBracket (R2, R10)
+        // AddBracket
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -845,8 +853,8 @@ namespace OpenUGD.Tests
         [Test]
         public void AddBracket_OnTerminatedLifetime_InvokesNeitherCallback()
         {
-            // R2: the scope already ended, so the resource was never acquired and there is nothing to
-            // release. This deliberately does NOT follow R1's immediate-invoke rule.
+            // The scope already ended, so the resource was never acquired and there is nothing to
+            // release. This deliberately does NOT follow AddAction's immediate-invoke rule.
             var definition = NewTerminatedDefinition("bracket-dead");
             var log = new List<string>();
 
@@ -874,7 +882,7 @@ namespace OpenUGD.Tests
         [Test]
         public void AddBracket_WhenOnOpenThrows_NeverRegistersTheTeardown()
         {
-            // R2: onOpen is invoked BEFORE onTerminate is registered. If acquisition fails, nothing was
+            // onOpen is invoked BEFORE onTerminate is registered. If acquisition fails, nothing was
             // acquired, so the teardown for it must never run. (1.x registered the teardown first.)
             var definition = NewDefinition("bracket-open-throws");
             var closed = 0;
@@ -912,9 +920,8 @@ namespace OpenUGD.Tests
         [Test]
         public void AddBracket_WithNullOnTerminate_ThrowsBeforeAnythingIsAcquired()
         {
-            // Added in the merge: neither blind suite covered it. A bracket that cannot release must not
-            // open, so the argument is validated before onOpen runs — and before the liveness check, so the
-            // contract does not depend on state.
+            // A bracket that cannot release must not open, so the argument is validated before onOpen
+            // runs — and before the liveness check, so the contract does not depend on state.
             var alive = NewDefinition("bracket-null-close");
             var dead = NewTerminatedDefinition("bracket-null-close-dead");
             var opened = 0;
@@ -928,7 +935,7 @@ namespace OpenUGD.Tests
         [Test]
         public void AddBracket_AndAddAction_ShareOneReverseOrderedTerminationSequence()
         {
-            // R10: inner resources close before outer ones, and brackets interleave with plain actions.
+            // Inner resources close before outer ones, and brackets interleave with plain actions.
             var definition = NewDefinition("mixed-lifo");
             var log = new List<string>();
 
@@ -947,8 +954,9 @@ namespace OpenUGD.Tests
         [Test]
         public void AddBracket_NeverReleasesAResourceItNeverAcquired()
         {
-            // R2 stated as the invariant it exists to protect, across the alive path, the
-            // registered-during-termination path, and the dead path in one sweep.
+            // The bracket rule stated as the invariant it exists to protect - only an acquired resource
+            // is released - across the alive path, the registered-during-termination path, and the dead
+            // path in one sweep.
             var definition = NewDefinition("bracket-invariant");
             var opens = new List<string>();
             var closes = new List<string>();
@@ -969,13 +977,13 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // Throwing termination actions (R4, LS-16)
+        // Throwing termination actions
         // ------------------------------------------------------------------------------------------
 
         [Test]
         public void Terminate_WhenSeveralActionsThrow_RunsAllOfThemAndAggregatesTheFailuresInTheOrderTheyOccurred()
         {
-            // R4 + R10 + LS-16: two or more failures are reported together, in reverse registration order.
+            // Two or more failures are reported together, in reverse registration order.
             var definition = NewDefinition("many-throwers");
             var order = new List<string>();
             var first = new MarkerException("first");
@@ -1001,9 +1009,8 @@ namespace OpenUGD.Tests
         [Test]
         public void Terminate_WithExactlyOneThrowingAction_RethrowsThatExceptionItselfWithItsStackTrace()
         {
-            // LS-16: a single failure is not wrapped. It is rethrown with its own type, so the caller's
+            // A single failure is not wrapped. It is rethrown with its own type, so the caller's
             // catch clauses match, and with the frame that threw it, so the trace points at the culprit.
-            // REPLACES Terminate_WithOneThrowingAction_StillReportsItAsAnAggregateException.
             var definition = NewDefinition("single-thrower");
             var boom = new MarkerException("only");
             var otherRan = false;
@@ -1022,7 +1029,7 @@ namespace OpenUGD.Tests
         [Test]
         public void Terminate_WithExactlyOneFailureDeepInATree_RethrowsItUnwrappedThroughEveryLevel()
         {
-            // LS-16 across nesting: each level sees exactly one failure, so none of them wraps it.
+            // The same across nesting: each level sees exactly one failure, so none of them wraps it.
             var root = NewDefinition("tree");
             var child = root.Lifetime.DefineNested("child");
             var grandChild = child.Lifetime.DefineNested("grand-child");
@@ -1133,7 +1140,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // Reentrancy (R3)
+        // Reentrancy
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -1198,13 +1205,13 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // Unregistering via a nested definition (R11)
+        // Unregistering via a nested definition
         // ------------------------------------------------------------------------------------------
 
         [Test]
         public void TerminatingANestedDefinition_IsTheSupportedWayToUnregisterAnAction()
         {
-            // R11: there is deliberately no RemoveAction API — a nested definition IS the removal mechanism.
+            // There is deliberately no RemoveAction API — a nested definition IS the removal mechanism.
             var owner = NewDefinition("owner");
             var permanentRuns = 0;
             var temporaryRuns = 0;
@@ -1246,7 +1253,7 @@ namespace OpenUGD.Tests
         [Test]
         public void TerminatingANestedDefinition_ReleasesTheParentsReferenceToIt()
         {
-            // R11: the detach registered by AddDefinition must really drop the child's entry from the
+            // The detach registered by AddDefinition must really drop the child's entry from the
             // parent's list; otherwise a long-lived parent accumulates dead children. Non-retention is the
             // only observable proof of removal, since a stale entry would merely be an idempotent no-op.
             var parent = NewDefinition("parent");
@@ -1315,7 +1322,7 @@ namespace OpenUGD.Tests
         [Test]
         public void TerminatingAChildBetweenLiveSiblings_ReleasesTheParentsReferenceToIt()
         {
-            // LS-4: a child detached from the middle of the parent's sequence leaves an empty slot rather
+            // A child detached from the middle of the parent's sequence leaves an empty slot rather
             // than shifting its siblings. The slot must not keep the child reachable.
             var parent = NewDefinition("parent");
             var before = parent.Lifetime.DefineNested("before");
@@ -1338,7 +1345,7 @@ namespace OpenUGD.Tests
         [Test]
         public void ChildrenMovedByCompaction_AreReleasedByTheParentOnceTheyTerminate()
         {
-            // LS-4 (added in review): compacting in place moves the surviving entries down and must clear the
+            // Compacting in place moves the surviving entries down and must clear the
             // slots they vacated. A stale copy past the used range is never run, so only non-retention can
             // show it: it would keep a moved child reachable after that child terminated.
             var parent = NewDefinition("parent");
@@ -1393,7 +1400,7 @@ namespace OpenUGD.Tests
         [Test]
         public void DetachingChildrenInAnyOrder_KeepsEveryRemainingEntryInStrictLifoOrder([Values(1, 2, 3)] int seed)
         {
-            // LS-4: detach is O(1) via slots, empty slots and compaction, all of which move entries around
+            // Detach is O(1) via slots, empty slots and compaction, all of which move entries around
             // inside the parent. A model-based check: random registrations and early terminations against a
             // plain list of what should remain, then the parent's teardown must match the model exactly -
             // every survivor once, in reverse registration order, and no early-terminated child again.
@@ -1401,8 +1408,8 @@ namespace OpenUGD.Tests
             // The run alternates 500-step phases: growth (10% actions, 70% children, 20% early terminations)
             // and shrinkage (no actions, 20% children, 80% early terminations), so that every seed drives
             // the parent through several in-place compactions and several compactions into a smaller array,
-            // and then detaches children whose slots those compactions moved. (Review: a uniform 30/40/30
-            // mix compacted at most once per run and usually never, so it could not catch a broken slot
+            // and then detaches children whose slots those compactions moved. (A uniform 30/40/30 mix
+            // compacted at most once per run and usually never, so it could not catch a broken slot
             // rewrite or a miscounted empty slot.)
             var random = new Random(seed);
             var parent = NewDefinition("model-" + seed);
@@ -1476,13 +1483,13 @@ namespace OpenUGD.Tests
         [Test]
         public void FreshLifetimes_DoNotInheritActionsFromPreviouslyTerminatedOnes()
         {
-            // R5: the deleted pool could hand one List<Action> to two live Lifetime instances.
+            // No shared mutable state between Lifetime instances: 1.2.0 kept a shared pool of action
+            // lists, which could hand one List<Action> to two live Lifetime instances.
             //
-            // ADJUSTED from the blind version, which registered `Assert.Fail(...)` on each churned
-            // definition and then terminated that same definition - so the poison action fired at its own
-            // termination and the test failed against any correct implementation, 1.x included. What the
-            // test is actually after is that a churned action never runs a SECOND time, from a LATER
-            // lifetime, so the poison is counted rather than fatal.
+            // What the test is after is that a churned action never runs a SECOND time, from a LATER
+            // lifetime, so the poison is counted rather than fatal. An `Assert.Fail(...)` registered on each
+            // churned definition would fire at that definition's own termination and fail against any
+            // correct implementation.
             const int churn = 50;
             var churnedRuns = 0;
 
@@ -1514,7 +1521,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // LifetimeExtensions: With (R9)
+        // LifetimeExtensions: With
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -1538,7 +1545,7 @@ namespace OpenUGD.Tests
         [Test]
         public void With_ReturnsTheStaticTypeItWasGiven()
         {
-            // LS-6: With<T> returns T, so construction, ownership and use fit in one declaration. The
+            // With<T> returns T, so construction, ownership and use fit in one declaration. The
             // declarations below are the assertion - they do not compile against the 1.x signature, which
             // returned IDisposable.
             var definition = NewDefinition("with-typed");
@@ -1559,7 +1566,7 @@ namespace OpenUGD.Tests
         [Test]
         public void With_OnTerminatedLifetime_DisposesImmediatelyAndExactlyOnce()
         {
-            // R9 via R1: in 1.x the registration was silently dropped and the disposable was never disposed.
+            // In 1.x the registration was silently dropped and the disposable was never disposed.
             var definition = NewTerminatedDefinition("with-dead");
             var disposable = new CountingDisposable();
 
@@ -1597,7 +1604,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // LifetimeExtensions: AsCancellationToken (R9)
+        // LifetimeExtensions: AsCancellationToken
         // ------------------------------------------------------------------------------------------
 
         [Test]
@@ -1624,14 +1631,14 @@ namespace OpenUGD.Tests
             Assert.IsTrue(first.IsCancellationRequested);
             Assert.IsTrue(second.IsCancellationRequested);
             // Assert.Catch, not Assert.Throws: the BCL only promises an OperationCanceledException, and a
-            // derived type would be a conforming implementation. The two blind suites disagreed on this.
+            // derived type would be a conforming implementation.
             Assert.Catch<OperationCanceledException>(() => first.ThrowIfCancellationRequested());
         }
 
         [Test]
         public void AsCancellationToken_OnTerminatedLifetime_ReturnsAnAlreadyCancelledToken()
         {
-            // R9 via R1: in 1.x the registration was dropped, the token never cancelled, and any await on
+            // In 1.x the registration was dropped, the token never cancelled, and any await on
             // it hung forever.
             var definition = NewTerminatedDefinition("cts-dead");
 
@@ -1655,7 +1662,7 @@ namespace OpenUGD.Tests
         [Test]
         public void AsCancellationToken_LeavesTheTokenFullyUsableAfterTermination()
         {
-            // R9: this is the observable that distinguishes "the CancellationTokenSource was disposed" from
+            // This is the observable that distinguishes "the CancellationTokenSource was disposed" from
             // "it was not". Disposing it would break every caller still holding the token, so we never do.
             var definition = NewDefinition("cts-after-terminate");
             var token = definition.Lifetime.AsCancellationToken();
@@ -1677,7 +1684,7 @@ namespace OpenUGD.Tests
         }
 
         // ------------------------------------------------------------------------------------------
-        // LifetimeExtensions: IsAlive / ThrowIfTerminated, and the null contract (R9)
+        // LifetimeExtensions: IsAlive / ThrowIfTerminated, and the null contract
         // ------------------------------------------------------------------------------------------
 
         [Test]

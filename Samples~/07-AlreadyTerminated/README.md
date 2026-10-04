@@ -44,4 +44,10 @@ between the check and the call.
 to release. See sample 04. Both rules serve one invariant — *every acquired resource is released exactly
 once.*
 
+## Run it
+
+```csharp
+AlreadyTerminatedSample.Run(Console.WriteLine); // or Debug.Log in Unity
+```
+
 This sample is plain C# — the package references neither `UnityEngine` nor `UnityEditor`.

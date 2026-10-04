@@ -45,4 +45,11 @@ that one ends. Use `other.DefineNested()`, or
 - `BracketSample.cs` — ordering, chaining, the dead-scope case, and the throwing-`onOpen` case.
 - `DisposableSample.cs` — `With` returning the concrete type, and immediate disposal on a dead scope.
 
+## Run it
+
+```csharp
+BracketSample.Run(Console.WriteLine); // or Debug.Log in Unity
+DisposableSample.Run(Console.WriteLine);
+```
+
 This sample is plain C# — the package references neither `UnityEngine` nor `UnityEditor`.

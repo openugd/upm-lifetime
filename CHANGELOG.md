@@ -59,7 +59,7 @@ Version 2.0.0, the first of the synchronized OpenUGD 2.x family. It contains bre
 - Detaching a nested definition scanned the parent's whole list, so ending many scopes was quadratic. It is
   now amortised O(1). No API change.
 
-## [1.2.0]
+## [1.2.0] - 2025-05-31
 ### Added
 - `IsAlive()` and `ThrowIfTerminated()` extension methods.
 - XML documentation comments.
@@ -68,10 +68,15 @@ Version 2.0.0, the first of the synchronized OpenUGD 2.x family. It contains bre
 - `With` returns the `IDisposable` it was given; the extension methods throw `ArgumentNullException` for a
   null argument.
 
-## [1.1.0]
+## [1.1.0] - 2025-01-31
 ### Added
 - `AsCancellationToken()` extension method.
 
-## [1.0.0]
+## [1.0.0] - 2025-01-23
 ### Added
 - `Lifetime`, `Lifetime.Definition` and the `With` extension method.
+
+[2.0.0]: https://github.com/openugd/upm-lifetime/compare/1.2.0...2.0.0
+[1.2.0]: https://github.com/openugd/upm-lifetime/compare/1.1.0...1.2.0
+[1.1.0]: https://github.com/openugd/upm-lifetime/compare/1.0.0...1.1.0
+[1.0.0]: https://github.com/openugd/upm-lifetime/releases/tag/1.0.0
